@@ -24,7 +24,7 @@ import { Button } from '@/components/ui/button'
 import { DataTable, PaginationBar, type Column } from '@/components/Table'
 import PageHeader from '@/components/PageHeader'
 import DeleteConfirm from '@/components/DeleteConfirm'
-import { cn, categoryTint } from '@/lib/utils'
+import { cn, categoryTint, errMsg } from '@/lib/utils'
 
 const PAGE_SIZE = 20
 
@@ -137,7 +137,7 @@ export default function TeacherList() {
       setDialogOpen(false)
       refresh()
     },
-    onError: (e: any) => toast.error(e?.message ?? '创建失败'),
+    onError: (e) => toast.error(errMsg(e, '创建失败')),
   })
 
   const updateMutation = useMutation({
@@ -148,7 +148,7 @@ export default function TeacherList() {
       setEditingId(null)
       refresh()
     },
-    onError: (e: any) => toast.error(e?.message ?? '保存失败'),
+    onError: (e) => toast.error(errMsg(e, '保存失败')),
   })
 
   const deleteMutation = useMutation({
@@ -158,7 +158,7 @@ export default function TeacherList() {
       if ((data?.items.length ?? 0) === 1 && page > 1) setPage(page - 1)
       else refresh()
     },
-    onError: (e: any) => toast.error(e?.message ?? '删除失败'),
+    onError: (e) => toast.error(errMsg(e, '删除失败')),
   })
 
   const onExport = async () => {
@@ -166,8 +166,8 @@ export default function TeacherList() {
     try {
       await exportXlsx(listParams)
       toast.success('已导出 Excel')
-    } catch (e: any) {
-      toast.error(e?.message ?? '导出失败')
+    } catch (e) {
+      toast.error(errMsg(e, '导出失败'))
     } finally {
       setExporting(false)
     }
@@ -379,8 +379,8 @@ export default function TeacherList() {
                 toast.success(`已删除 ${n} 条记录`)
                 setSelected([])
                 refresh()
-              } catch (e: any) {
-                toast.error(e?.message ?? '批量删除失败')
+              } catch (e) {
+                toast.error(errMsg(e, '批量删除失败'))
               }
             }}
           />

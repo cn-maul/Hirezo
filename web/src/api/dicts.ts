@@ -17,12 +17,6 @@ export async function fetchDictionaries(kind: DictKind): Promise<Dictionary[]> {
   return r.data.data ?? []
 }
 
-/** 表单下拉只取已启用项；停用值仅用于回显既有记录 */
-export async function fetchEnabledOptions(kind: DictKind): Promise<string[]> {
-  const all = await fetchDictionaries(kind)
-  return all.filter((d) => d.enabled === 1).map((d) => d.name)
-}
-
 export async function createDictionary(
   kind: DictKind,
   p: { name: string; color?: string; sort?: number; enabled?: number },

@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useFormState, validateLogin, type LoginFormValues } from '@/lib/validation'
+import { errMsg } from '@/lib/utils'
 import { useAuth } from '@/auth'
 import { getSettings } from '@/api/settings'
 
@@ -48,8 +49,8 @@ export default function Login() {
         }
       }
       navigate(safeNext, { replace: true })
-    } catch (e: any) {
-      toast.error(e?.message ?? '登录失败')
+    } catch (e) {
+      toast.error(errMsg(e, '登录失败'))
     } finally {
       setLoading(false)
     }

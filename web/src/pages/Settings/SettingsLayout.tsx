@@ -1,5 +1,5 @@
 import { NavLink, Outlet, Navigate } from 'react-router-dom'
-import { Settings2, Tags, Database } from 'lucide-react'
+import { Settings2, Tags, Database, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { APP_VERSION_LABEL } from '@/lib/version'
 import { useAuth } from '@/auth'
@@ -7,6 +7,7 @@ import { useAuth } from '@/auth'
 const tabs = [
   { to: '/settings/general', icon: Settings2, label: '通用' },
   { to: '/settings/dicts', icon: Tags, label: '字典管理' },
+  { to: '/settings/llm', icon: Sparkles, label: '模型配置' },
   { to: '/settings/data', icon: Database, label: '数据备份' },
 ]
 

@@ -365,5 +365,7 @@ func (a *app) apiSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// 站点名已写入：失效内存缓存，下次 SPA 回退时重新读取
+	a.invalidateSiteName()
 	jsonResp(w, http.StatusOK, map[string]any{"data": map[string]any{"ok": true}})
 }

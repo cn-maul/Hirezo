@@ -5,10 +5,12 @@ import RequireAuth from '@/components/RequireAuth'
 
 const TeacherList = lazy(() => import('./pages/TeacherList'))
 const TeacherDetail = lazy(() => import('./pages/TeacherDetail'))
+const Resume = lazy(() => import('./pages/Resume'))
 const Login = lazy(() => import('./pages/Login'))
 const SettingsLayout = lazy(() => import('./pages/Settings/SettingsLayout'))
 const General = lazy(() => import('./pages/Settings/General'))
 const Dicts = lazy(() => import('./pages/Settings/Dicts'))
+const LLM = lazy(() => import('./pages/Settings/LLM'))
 const Data = lazy(() => import('./pages/Settings/Data'))
 const NotFound = lazy(() => import('./pages/NotFound'))
 
@@ -28,10 +30,12 @@ export default function Router() {
             <Route path="/" element={<Navigate to="/teachers" replace />} />
             <Route path="/teachers" element={<TeacherList />} />
             <Route path="/teachers/:id" element={<TeacherDetail />} />
+            <Route path="/resume" element={<Resume />} />
             <Route path="/settings" element={<SettingsLayout />}>
               <Route index element={<Navigate to="/settings/general" replace />} />
               <Route path="general" element={<General />} />
               <Route path="dicts" element={<Dicts />} />
+              <Route path="llm" element={<LLM />} />
               <Route path="data" element={<Data />} />
             </Route>
           </Route>

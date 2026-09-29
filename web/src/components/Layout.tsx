@@ -8,6 +8,7 @@ import {
   LogOut,
   PanelLeft,
   GraduationCap,
+  FileSearch,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
@@ -127,6 +128,7 @@ export default function Layout() {
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-2 pb-4">
           <NavItem to="/teachers" icon={Users} label="人员管理" collapsed={railCollapsed} end />
+          <NavItem to="/resume" icon={FileSearch} label="简历识别" collapsed={railCollapsed} />
           {isAdmin && <NavItem to="/settings" icon={Settings} label="设置" collapsed={railCollapsed} />}
         </nav>
 

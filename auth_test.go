@@ -55,7 +55,7 @@ func TestLoginLogoutAndStatus(t *testing.T) {
 	requireStatus(t, resp, http.StatusOK)
 	var st struct {
 		Data struct {
-			OK   bool `json:"ok"`
+			OK   bool  `json:"ok"`
 			User *User `json:"user"`
 		} `json:"data"`
 	}

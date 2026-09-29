@@ -18,7 +18,7 @@ import DeleteConfirm from '@/components/DeleteConfirm'
 import PageSpinner from '@/components/PageSpinner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { categoryTint, cn } from '@/lib/utils'
+import { categoryTint, cn, errMsg } from '@/lib/utils'
 
 function Field({ label, value }: { label: string; value: ReactNode }) {
   return (
@@ -59,7 +59,7 @@ export default function TeacherDetail() {
       queryClient.invalidateQueries({ queryKey: ['teachers'] })
       navigate('/', { replace: true })
     },
-    onError: (e: any) => toast.error(e?.message ?? '删除失败'),
+    onError: (e) => toast.error(errMsg(e, '删除失败')),
   })
 
   const update = useMutation({
@@ -70,7 +70,7 @@ export default function TeacherDetail() {
       queryClient.invalidateQueries({ queryKey: ['teachers'] })
       setEditing(false)
     },
-    onError: (e: any) => toast.error(e?.message ?? '保存失败'),
+    onError: (e) => toast.error(errMsg(e, '保存失败')),
   })
 
   if (isLoading) return <PageSpinner />

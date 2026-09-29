@@ -24,7 +24,7 @@ import {
 import { DataTable, type Column } from '@/components/Table'
 import DeleteConfirm from '@/components/DeleteConfirm'
 import { useFormState, validateDict, type DictFormValues } from '@/lib/validation'
-import { cn, categoryTint } from '@/lib/utils'
+import { cn, categoryTint, errMsg } from '@/lib/utils'
 
 const KIND_LABEL: Record<DictKind, string> = { subject: '学科', education: '学历' }
 
@@ -58,7 +58,7 @@ export default function Dicts() {
       toast.success('已创建')
       setModal({ open: false })
     },
-    onError: (e: any) => toast.error(e.message || '创建失败'),
+    onError: (e) => toast.error(errMsg(e, '创建失败')),
   })
 
   const updateMutation = useMutation({
@@ -69,7 +69,7 @@ export default function Dicts() {
       toast.success('已更新')
       setModal({ open: false })
     },
-    onError: (e: any) => toast.error(e.message || '更新失败'),
+    onError: (e) => toast.error(errMsg(e, '更新失败')),
   })
 
   const deleteMutation = useMutation({
@@ -78,7 +78,7 @@ export default function Dicts() {
       invalidate()
       toast.success('已删除')
     },
-    onError: (e: any) => toast.error(e.message || '删除失败'),
+    onError: (e) => toast.error(errMsg(e, '删除失败')),
   })
 
   const { values, errors, set, reset, submit } = useFormState<DictFormValues>(emptyDict, validateDict)

@@ -18,6 +18,7 @@ import {
   validatePasswordChange,
   type PasswordChangeValues,
 } from '@/lib/validation'
+import { errMsg } from '@/lib/utils'
 
 // 账号弹窗：展示当前用户信息 + 自助修改密码。
 // 改密成功后其他端会话被服务端吊销，当前会话保持登录。
@@ -41,8 +42,8 @@ export default function AccountDialog({
       reset()
       onOpenChange(false)
       toast.success('密码已修改，其他设备需重新登录')
-    } catch (e: any) {
-      toast.error(e?.message ?? '修改失败')
+    } catch (e) {
+      toast.error(errMsg(e, '修改失败'))
     }
   }
 

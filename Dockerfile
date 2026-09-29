@@ -23,8 +23,10 @@ COPY . .
 COPY --from=frontend /web/dist web/dist
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o hirezo .
 
-# 运行阶段：scratch 最小镜像
-FROM scratch
+# 运行阶段：alpine（需要 CA 证书访问大模型 HTTPS 接口，
+# 以及 poppler-utils 提供 pdftoppm 识别扫描件 PDF）
+FROM alpine:3.21
+RUN apk add --no-cache ca-certificates tzdata poppler-utils
 COPY --from=builder /build/hirezo /hirezo
 ENV TZ=Asia/Shanghai
 WORKDIR /data

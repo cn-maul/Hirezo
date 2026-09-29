@@ -155,7 +155,9 @@ export function DataTable<T extends object>({
                   : dataSource.map((r) => (
                       <TableRow key={rowKey(r)}>
                         {cols.map((c) => (
-                          <TableCell key={c.key}>{c.render ? c.render(r) : String((r as any)[c.key])}</TableCell>
+                          <TableCell key={c.key}>
+                            {c.render ? c.render(r) : String((r as Record<string, unknown>)[c.key])}
+                          </TableCell>
                         ))}
                       </TableRow>
                     ))}

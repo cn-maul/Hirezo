@@ -11,6 +11,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { errMsg } from '@/lib/utils'
 
 export default function DeleteConfirm({
   title,
@@ -31,8 +32,8 @@ export default function DeleteConfirm({
     try {
       await onConfirm()
       setOpen(false)
-    } catch (e: any) {
-      toast.error(e?.message ?? '操作失败')
+    } catch (e) {
+      toast.error(errMsg(e, '操作失败'))
     } finally {
       setLoading(false)
     }

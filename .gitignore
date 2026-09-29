@@ -11,5 +11,10 @@ web/tsconfig.*.tsbuildinfo
 *.db-shm
 *.db.backup-*
 
+# API Key 加密密钥（请勿提交；与数据库一起备份）
+.hirezo-secret
+.gocache/
+
 # 本地工作数据（WorkBuddy 会话箱、探索脚本、临时文件等）
 .workbuddy/
+.pnpm-store/

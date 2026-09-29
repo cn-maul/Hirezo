@@ -8,7 +8,7 @@
 
 - **目标**：单二进制、零外部依赖、启动即用；数据落在本地 SQLite 文件，备份即拷贝。
 - **范围（一期）**：人员管理（列表 / 搜索 / 筛选 / 新增 / 编辑 / 删除 / 详情 / 导出）、学科与学历字典管理、管理员登录与改密。
-- **二期规划**：简历录入模块（暂未设计）。
+- **范围（二期）**：简历识别录入（docx/pdf → 大模型抽取 → 人工修正 → 入库），见第 10 章。
 - **非目标**：多角色 RBAC、招聘流程流转、统计看板、Excel 导入、操作审计、多管理员、消息推送、对外集成 API。
 
 ## 2. 技术选型
@@ -22,13 +22,15 @@
 | 数据库 | SQLite（`modernc.org/sqlite`） | 纯 Go 实现，无 CGO，`CGO_ENABLED=0` 可交叉编译 |
 | 密码 | `golang.org/x/crypto/bcrypt` | 库中只存哈希 |
 | Excel 导出 | `github.com/xuri/excelize/v2` | 纯 Go；仅导出，导入属二期 |
+| 大模型接入 | `github.com/cn-maul/rosetta` v0.5.1 | 统一 OpenAI Chat / Responses / Anthropic Messages 三协议，零第三方依赖，Go 1.27 |
+| PDF 文本抽取 | `github.com/ledongthuc/pdf` | 纯 Go 文本层抽取；无文本层的扫描件转 `pdftoppm` 渲染 |
 | 前端 | React 19 + TypeScript + Vite | 复用 tix 界面风格 |
 | 样式 | Tailwind CSS v4 + shadcn 风格组件 + CSS 变量设计令牌 | 无业务组件库 |
 | 路由 / 数据 | `react-router-dom` + `@tanstack/react-query` | |
 | HTTP | `axios`（统一封装于 `src/api/client.ts`） | |
 | 静态资源 | `embed.FS`（`//go:embed web/dist`） | 前端产物编译进二进制 |
 
-依赖总量：后端 3 个直接依赖（sqlite / crypto / excelize），前端为 tix 原有依赖集，未新增。
+依赖总量：后端 5 个直接依赖（sqlite / crypto / excelize / rosetta / ledongthuc-pdf），前端为 tix 原有依赖集，未新增。
 
 ## 3. 系统架构
 
@@ -40,13 +42,15 @@ Hirezo/
 │                    #      → app 构造 → 中间件链 → 优雅关闭；路由注册、SPA 回退、安全头
 ├── api.go           # 通用响应/参数解析 + teachers 与 dictionaries 处理器 + 导出 + 校验
 ├── auth.go          # 会话存储、登录/登出/状态、改密、设置接口
-├── store.go         # 限流器、数据模型、建表与迁移、字典/教师/用户/设置 数据访问
+├── resume.go        # 简历识别：上传校验、docx/pdf 解析、模型抽取、字段闸门、草稿入库
+├── llm.go           # 模型配置读写（settings 表）+ rosetta client 构造
+├── store.go         # 限流器、数据模型、建表与迁移、字典/教师/用户/设置/草稿 数据访问
 ├── embed.go         #（无独立文件，embed 声明在 main.go）
 ├── web/             # 前端工程
 │   ├── src/
-│   │   ├── api/        # client 封装 + auth/teachers/dicts/settings
+│   │   ├── api/        # client 封装 + auth/teachers/dicts/settings/resume
 │   │   ├── components/ # 通用组件（Table/Dialog/Button…）+ teachers/ 筛选与表单
-│   │   ├── pages/      # Login / TeacherList / TeacherDetail / Settings
+│   │   ├── pages/      # Login / TeacherList / TeacherDetail / Resume / Settings
 │   │   ├── lib/        # validation、theme、utils
 │   │   └── router.tsx
 │   ├── dist/           # 构建产物（被 embed）
@@ -69,7 +73,7 @@ Hirezo/
 
 - `securityHeaders`：`X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy: same-origin`、CSP（`default-src 'self'` 等）。
 - `authMiddleware`：路径以 `/api/` 开头且不在 `publicAPI` 白名单内时校验会话，未通过返回 401。
-- `publicAPI` 白名单：`/api/health`、`/api/login`、`/api/logout`、`/api/auth/status`、`/api/settings`。
+- `publicAPI` 白名单：`/api/health`、`/api/login`、`/api/logout`、`/api/auth/status`、`/api/settings`。简历识别与模型配置接口均需登录。
 
 ## 4. 数据库设计
 
@@ -119,6 +123,18 @@ CREATE INDEX idx_teachers_name      ON teachers(name);
 
 -- 设置（键值对）
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+
+-- 简历识别草稿（中间数据，入库成功或手动删除后移除）
+CREATE TABLE resume_drafts (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  file_name  TEXT    NOT NULL,
+  file_type  TEXT    NOT NULL,                    -- 'docx' | 'pdf'
+  file_size  INTEGER NOT NULL DEFAULT 0,
+  page_count INTEGER NOT NULL DEFAULT 0,
+  raw_text   TEXT    NOT NULL,                    -- 归一化文本（纯扫描件为空）
+  payload    TEXT    NOT NULL,                    -- 抽取结果 JSON（fields + evidence + confidence + warnings）
+  created_at TEXT    NOT NULL
+);
 ```
 
 **设计要点**
@@ -130,6 +146,7 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 - **性别**为固定枚举，不进字典。
 - **年龄**直接存整数（0 = 未填），按需求 18–100；后续如需精算可加 `birth_date`（待定项）。
 - **硬删除**：`DELETE FROM teachers WHERE id=?`，无回收站。
+- **草稿不存文件**：`resume_drafts` 只留归一化文本与抽取 JSON，原始简历仅在请求期间驻留内存/临时目录，不留档、不进备份。
 
 ### 种子数据
 
@@ -190,6 +207,13 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 | DELETE | `/api/dictionaries/{kind}/{id}` | 未被引用 → `{data:{ok:true}}`；被引用 → 409 |
 | GET | `/api/settings` | 公开，仅返回白名单键（`site_name`） |
 | PUT | `/api/settings` | 管理员，白名单键写入 |
+| POST | `/api/resume/parse` | multipart `file` → 同步解析+模型抽取 → 201 `{data:Draft}`；未配置模型 503 |
+| GET | `/api/resume/drafts` | 草稿列表 → `{items,total,page,size}` |
+| GET | `/api/resume/drafts/{id}` | 草稿详情 → `{data:Draft}` |
+| DELETE | `/api/resume/drafts/{id}` | 丢弃草稿 → `{data:{ok:true}}` |
+| POST | `/api/resume/drafts/{id}/commit` | `{fields:{...}}`（人工修正后）→ 201 `{data:Teacher}` 并删除草稿 |
+| GET | `/api/settings/llm` | 管理员，模型配置回显（API Key 掩码为 `****xxxx`） |
+| PUT | `/api/settings/llm` | 管理员，写入 endpoint/protocol/model/api_key（api_key 留空表示不改） |
 
 > 路由字面量段优先于通配符：`GET /api/teachers/export` 会先于 `GET /api/teachers/{id}` 匹配。
 
@@ -245,9 +269,11 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 | `/` | → `/teachers` | 重定向 |
 | `/teachers` | 人员列表 | 搜索 + 筛选 + 表格 + 分页 + 新增/导出 |
 | `/teachers/:id` | 人员详情 | 只读字段 + 编辑/删除入口 |
+| `/resume` | 简历识别 | 上传 → 高亮表单 → 确认入库；下方草稿列表 |
 | `/settings` | 设置布局 | 子路由重定向到 general |
 | `/settings/general` | 通用 | 站点名称 |
 | `/settings/dicts` | 字典管理 | 学科 / 学历两个 Tab |
+| `/settings/llm` | 模型配置 | 端点 / 协议 / 模型 / API Key |
 | `/settings/data` | 数据与备份 | 说明页 |
 | `*` | 404 | |
 
@@ -256,14 +282,16 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 ### 7.2 页面与组件
 
 ```
-Layout.tsx            侧边栏（人员管理 / 系统设置）+ 顶栏（主题、退出、账号弹窗）
+Layout.tsx            侧边栏（人员管理 / 简历识别 / 系统设置）+ 顶栏（主题、退出、账号弹窗）
 PageHeader.tsx        标题 + 主操作按钮
 Table.tsx             DataTable / PaginationBar（通用）
 TeacherFilters.tsx    姓名搜索（300ms 防抖 + URL 同步）+ 学科/性别/学历/证书 下拉 + 导出
-TeacherFormDialog.tsx 新增/编辑弹窗（同一组件，2 列网格）
+TeacherFormDialog.tsx 新增/编辑弹窗（同一组件，2 列网格）；M4 增加 fieldMeta 高亮模式
 DeleteConfirm.tsx     危险操作二次确认
 AccountDialog.tsx     修改密码
 Dicts.tsx             字典管理（Tab 切换 kind）
+LLM.tsx               模型配置（端点/协议/模型/API Key + 连通性说明）
+Resume.tsx            简历识别：拖拽上传 → 解析进度 → 高亮表单 → 确认入库 + 草稿列表
 ```
 
 **列表列**：姓名（跳详情）/ 性别 / 年龄 / 学科（色胶囊）/ 教师资格证 / 联系电话 / 学历 / 毕业院校 / 专业 / 录入时间 / 操作（查看 · 编辑 · 删除）。支持多选批量删除。
@@ -299,7 +327,8 @@ go run .
 - **预压缩**：Vite 插件在构建期生成 `.gz` / `.br`，运行时按 `Accept-Encoding` 优先返回；`index.html` 不走预压缩（需动态注入站点名到 `<title>`）。
 - **缓存**：`assets/` 下 hashed 资源 `immutable` 长缓存，`index.html` `no-cache`。
 - **数据备份**：停机复制 `hirezo.db`（WAL 模式含 `-wal`/`-shm` 伴生文件），或在线 `VACUUM INTO` 快照。
-- **Docker**：三阶段构建（node 构建前端 → go 编译 → scratch 运行）。
+- **Docker**：三阶段构建（node 构建前端 → go 编译 → alpine 运行）。运行镜像必须带 `ca-certificates`（否则 HTTPS 调不通大模型接口）与 `poppler-utils`（提供 `pdftoppm`，扫描件识别用），两者均随 Dockerfile 一起装好；二进制自行部署时缺失 `pdftoppm` 只影响扫描件，会明确报错。
+- **模型配置**：存 `settings` 表（见 10.4），改完即生效，无需重启。
 
 ## 9. 错误处理与日志
 
@@ -307,16 +336,110 @@ go run .
 - 前端 axios 拦截器统一提取 `error.message`（中文），401 全局跳登录，其余 toast 展示。
 - panic 恢复：Go 的 `http.Server` 对单请求 panic 不会中断整个服务（net/http 内置 recover 并断开连接），日志可见堆栈。
 
-## 10. 里程碑
+## 10. 简历识别模块（M4）
+
+### 10.1 流程
+
+```
+[前端] 选择 .docx / .pdf（≤10MB）
+   ↓ POST /api/resume/parse（multipart，同步等待）
+[服务端] 魔数校验 → 抽取文本 / 渲染页图 → 构造 prompt → rosetta.Chat → 容错解析 JSON
+        → 字段闸门（正则 + 字典白名单）→ 写 resume_drafts → 201 {data:Draft}
+[前端] TeacherFormDialog 高亮模式预填 → 人工修正
+   ↓ POST /api/resume/drafts/{id}/commit {fields}
+[服务端] validateTeacher → createTeacher → 删除草稿 → 201 {data:Teacher}
+```
+
+模型调用是同步阻塞的（通常 3–30s），因此 `/api/resume/parse` 走 90s 上下文超时，服务端 `WriteTimeout` 相应放宽到 120s。
+
+### 10.2 输入与解析
+
+| 类型 | 判定 | 解析方式 |
+|---|---|---|
+| `.docx` | 魔数 `PK\x03\x04` | `archive/zip` + `encoding/xml` 读 `word/document.xml`；段落逐行，**表格渲染为 `标签 \| 值` 行**喂模型 |
+| `.pdf`（有文本层） | 魔数 `%PDF` | `ledongthuc/pdf` 抽取文本 |
+| `.pdf`（扫描件） | 文本层为空 | `pdftoppm -png -r 150` 逐页渲染 → base64 → `rosetta.UserImage` |
+| 其他 | — | 400 拒绝（`.doc`、jpg/png 一律不收） |
+
+- **判定一律看魔数**，扩展名仅作提示；大小上限 10MB，页数上限 10，超出返回 400。
+- **文件不留档**：docx / 文本层 PDF 全程在内存中解析；只有扫描件渲染必须经临时目录（`os.MkdirTemp`），请求结束即整体删除。数据库只存归一化文本与抽取 JSON，不存原始简历。
+- 服务器缺 `pdftoppm` 且遇到扫描件 → 500 明确提示「缺少 poppler-utils」，**不静默降级**（启动日志会打印检测结果）。
+
+### 10.3 抽取契约与字段闸门
+
+系统提示强制只输出纯 JSON；服务端容错解析（剥离 ```json 围栏、取首个 `{` 到末个 `}`），**不使用 `response_format` / `Extra`**（三协议不兼容）。
+
+```json
+{
+  "fields": {
+    "name": { "value": "张三", "evidence": "张三  男  28岁", "confidence": 0.98 },
+    "phone": { "value": "13800138000", "evidence": "电话：13800138000", "confidence": 0.95 }
+  },
+  "summary": "中学数学教师，5 年教龄"
+}
+```
+
+模型输出之后、入库之前，在**本地**过一道闸门（防幻觉 + 字典一致性）：
+
+| 字段 | 规则 | 不通过处理 |
+|---|---|---|
+| `gender` | 男/男性 → `male`，女/女性 → `female` | 清空 + warning |
+| `age` | 18–100 整数；契约「未知给 0」→ 0 且 evidence 为空视为**未知**，不算错 | 越界清空 + error；0 但有证据 → warn |
+| `phone` | `^1[3-9]\d{9}$` | 清空 + warning |
+| `has_cert` | 有/具备/是/✓ → 1；无/没有/否 → 0 | 清空 + warning |
+| `subject` | 归一化（去空白/「学科」后缀/近义词）后须命中 `dictionaries(kind='subject')` | 留空 + warning「学科不在字典中，请下拉选择」 |
+| `education` | 同上，命中 `kind='education'` | 留空 + warning |
+| `name` | TrimSpace 后 1–50 字符 | warning（提交时 `validateTeacher` 兜底拦截） |
+| `university` / `major` / `remark` | 长度上限（100/100/500） | 截断 + warning |
+
+- 闸门返回 `warnings: [{field, message, level}]`，`level ∈ warn|error`；**清空的字段一定同时给 warning**，不会静默丢数据。
+- **取值为空但 evidence 非空**（模型按「不在列表给空值」契约清空了取值，但确实识别到了内容）→ 必定 warn：学科/学历给「不在字典中，请下拉选择」，手机号含数字给 error、不含给 warn，其余给「识别到X相关内容，但未能写入取值，请手动补全」。
+- **反向一致性**：`subject` / `education` 的取值必须能在其 evidence 中找到（去空白比对），否则 warn「取值与识别依据不一致」——用来抓住「简历写篮球教练、模型却填体育」这类脑补。只提示不拦截，取值照写，交人工核对。
+- 字典不匹配**一律留空 + 标黄**，禁止把模型的自由文本写进 `subject`/`education` 列。
+- `confidence < 0.6` 的字段前端标黄提示复核，不影响入库（入库只看 `validateTeacher`）。
+
+### 10.4 模型接入（Rosetta）
+
+| 配置项 | settings 键 | 说明 |
+|---|---|---|
+| 端点 | `llm_endpoint` | 如 `https://api.deepseek.com/v1`；裸主机自动补 `/v1`，不允许 query 串 |
+| 协议 | `llm_protocol` | `openai-chat`（默认）/ `openai-responses` / `anthropic` |
+| 模型 | `llm_model` | 如 `deepseek-chat`、`qwen-vl-max` |
+| API Key | `llm_api_key` | 只写不读：接口回显 `****后4位`，公开 `/api/settings` 不含任何 `llm_*` 键 |
+
+- `rosetta.NewClient(WithEndpoint, WithAPIKey, WithProtocol)`；endpoint/key 任一为空 → 503「模型尚未配置」。
+- `Client` 每次请求现建（配置改了立刻生效），并发安全由 SDK 保证。
+- 错误映射：`*rosetta.APIError` → 502（`Retryable` 时提示「上游繁忙，请重试」）；本地哨兵 `ErrInvalidRequest` → 502 配置/请求不被上游接受；90s 超时 → 504。
+
+### 10.5 接口与权限
+
+- `parse` / `drafts*` 全部需登录会话（不在 `publicAPI` 白名单内）；`settings/llm` 需管理员。
+- 提交入库完全复用 `validateTeacher` + `createTeacher`，不新增写入逻辑；`commit` 成功后删除对应草稿。
+- 草稿列表按 id 倒序分页，复用 `pagination`。
+
+### 10.6 前端
+
+- `/resume`：拖拽/点击上传（accept 仅 `.docx,.pdf`）→ 上传中禁用按钮 + 进度文案 → 拿到 Draft 后打开 `TeacherFormDialog`（`fieldMeta` 模式）。
+- `fieldMeta: Record<field, {evidence, confidence, level}>`：命中字段下方渲染证据引文条与置信度；`level=warn` 黄框、`level=error` 红框；warning 汇总为表单顶部提示。
+- 底部「识别记录」列出草稿：文件名 / 识别时间 / 状态，支持「继续录入」（重新打开表单）与「丢弃」。
+- 未配置模型时 `/resume` 顶部显示配置引导条，点击跳 `/settings/llm`。
+
+### 10.7 隐私与安全
+
+- 简历正文与模型返回**不写日志**；数据库只存归一化文本与 JSON。
+- 上传大小上限 10MB；类型按魔数判定；`ParseMultipartForm` 显式限额。
+- 模型配置仅管理员可读写；API Key 永不回显原文。
+
+## 11. 里程碑
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | M1 骨架 | 从 tix 裁剪出 Go 工程 + 登录/会话 + embed 静态服务 + 前端布局与登录页 | ✅ |
 | M2 人员管理 | teachers CRUD + 分页/搜索/筛选 + 弹窗表单 + 详情页 + 前后端校验 | ✅ |
 | M3 完善 | 字典管理页 + xlsx 导出 + 批量删除 + 测试与打磨 | ✅ |
-| M4 二期 | 简历录入模块 | ⏳ 待设计 |
+| M4 简历识别 | docx/pdf 解析 + Rosetta 抽取 + 字段闸门 + 草稿高亮表单 + 入库 | ✅ |
 
-## 11. 从 tix 裁剪的记录
+## 12. 从 tix 裁剪的记录
 
 **删除**：工单（tickets/comments 表与全部 handler）、统计看板、消息推送（`notify.go`）、外部集成 API Key、多用户管理与指派、游客公开查询、公开提交页、CSV 导出（改为 xlsx）。
 
@@ -324,9 +447,11 @@ go run .
 
 **待定项**
 
-1. 简历录入模块的数据模型与流程（二期）。
+1. ~~简历录入模块的数据模型与流程（二期）~~ → 已定稿，见第 10 章。
 2. 是否补字段：工号、职称、入职日期 / 在职状态、身份证号。
 3. 年龄 → 出生日期 是否切换。
 4. 统计看板 / 操作日志 是否需要。
 5. Excel 导入（含重复识别策略）。
 6. 会话是否改为落库（当前重启失效）。
+7. `.doc` / 图片简历的识别（当前明确不支持，需转换工具链时再议）。
+8. 重复简历识别（同名同手机号时提示已存在）。

@@ -8,6 +8,8 @@ hirezo-linux-amd64
 *.bat
 .git
 .gitignore
+.hirezo-secret
+.gocache/
 docs/
 **/node_modules
 web/dist

@@ -6,7 +6,9 @@
 #   docker run -d -p 8080:8080 -v hirezo-data:/data --name hirezo hirezo
 # ============================================
 
-FROM scratch
+# alpine：CA 证书（访问大模型 HTTPS 接口）+ poppler-utils（pdftoppm 识别扫描件）
+FROM alpine:3.21
+RUN apk add --no-cache ca-certificates tzdata poppler-utils
 COPY hirezo-linux-amd64 /hirezo
 ENV TZ=Asia/Shanghai
 WORKDIR /data

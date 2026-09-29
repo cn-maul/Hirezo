@@ -31,6 +31,7 @@ func main() {
 	dbPath := flag.String("db", "hirezo.db", "SQLite 数据库文件路径")
 	password := flag.String("password", defaultPassword, "管理员初始密码（可用 HIREZO_PASSWORD 环境变量覆盖，仅在首次创建 admin 时生效）")
 	trustProxy := flag.Bool("trust-proxy", false, "信任 X-Forwarded-For / X-Real-IP 头获取客户端真实 IP（仅在反向代理之后开启，否则限流可被伪造头绕过）")
+	secretKeyFile := flag.String("secret-key", "", "API Key 加密密钥文件路径（默认：数据库同目录 .hirezo-secret；也可用 HIREZO_SECRET_FILE 环境变量指定）")
 	flag.Parse()
 
 	db, err := openDB(*dbPath)
@@ -45,6 +46,13 @@ func main() {
 		log.Fatalf("数据库迁移失败: %v", err)
 	}
 
+	// 应用加密密钥（AES-256-GCM）：用于加密存储的 API Key。
+	// 密钥文件不存在时自动生成；请与数据库文件一起备份，丢失后无法解密已存密钥。
+	secret, err := LoadSecretKey(*secretKeyFile, *dbPath)
+	if err != nil {
+		log.Fatalf("加载应用加密密钥失败: %v", err)
+	}
+
 	pw := *password
 	if env := os.Getenv("HIREZO_PASSWORD"); env != "" {
 		pw = env
@@ -57,18 +65,30 @@ func main() {
 	if created {
 		log.Printf("已创建管理员账号 admin，初始密码: %s（登录后请在右上角头像中修改密码）", pw)
 	}
+	// 扫描件识别依赖 pdftoppm（poppler-utils），启动时检测并给出提示
+	if p, err := pdftoppmPath(); err == nil {
+		log.Printf("扫描件 PDF 渲染可用: %s", p)
+	} else {
+		log.Printf("提示: %v（仅影响扫描件简历识别，文本层 PDF 不受影响）", err)
+	}
 	a := &app{
 		db:           db,
 		auth:         newAuthStore(),
 		trustProxy:   *trustProxy,
 		loginLimiter: newRateLimiter(10, time.Minute),
+		secret:       secret,
 	}
+	// 限流器后台清扫：固定周期删除过期 key，内存上限可控
+	stopSweep := make(chan struct{})
+	a.loginLimiter.startSweep(stopSweep)
+	defer close(stopSweep)
+
 	srv := &http.Server{
 		Addr:              *addr,
 		Handler:           securityHeaders(a.authMiddleware(a.routes())),
 		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		ReadTimeout:       60 * time.Second,  // 简历上传 ≤10MB + multipart 读取
+		WriteTimeout:      120 * time.Second, // 简历识别含模型调用（llmTimeout 90s）
 		IdleTimeout:       60 * time.Second,
 	}
 	log.Printf("Hirezo 教师管理系统启动，监听 %s（数据库: %s）", *addr, *dbPath)
@@ -117,6 +137,14 @@ func (a *app) routes() *http.ServeMux {
 	// 设置
 	mux.HandleFunc("GET /api/settings", a.apiSettingsGet)
 	mux.HandleFunc("PUT /api/settings", a.apiSettingsUpdate)
+	mux.HandleFunc("GET /api/settings/llm", a.apiLLMConfigGet)
+	mux.HandleFunc("PUT /api/settings/llm", a.apiLLMConfigUpdate)
+
+	// 简历识别
+	mux.HandleFunc("POST /api/resume/parse", a.apiResumeParse)
+	mux.HandleFunc("GET /api/resume/drafts", a.apiResumeDraftList)
+	mux.HandleFunc("/api/resume/drafts/{id}", a.apiResumeDraftByID) // GET / DELETE
+	mux.HandleFunc("POST /api/resume/drafts/{id}/commit", a.apiResumeCommit)
 
 	// 未注册的 /api 路径统一返回 404 JSON（避免落入 SPA 回退）
 	mux.HandleFunc("/api/", a.apiNotFound)
@@ -234,10 +262,11 @@ func (a *app) spaFallback(w http.ResponseWriter, r *http.Request) {
 var titleRe = regexp.MustCompile(`<title>[^<]*</title>`)
 
 // injectSiteTitle 用设置中的站点名替换 index.html 的 <title>；
-// 站点名为空（未配置）时原样返回。
+// 站点名为空（未配置）时原样返回。站点名从内存缓存读取（见 a.siteName），
+// 设置变更时由 apiSettingsUpdate 失效，避免每次 SPA 回退都查库。
 func (a *app) injectSiteTitle(page []byte) []byte {
-	name, err := getSetting(a.db, "site_name")
-	if err != nil || name == "" {
+	name := a.siteName()
+	if name == "" {
 		return page
 	}
 	return titleRe.ReplaceAll(page, []byte("<title>"+html.EscapeString(name)+"</title>"))

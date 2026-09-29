@@ -33,6 +33,13 @@ func newRateLimiter(limit int, window time.Duration) *rateLimiter {
 // （如伪造 X-Forwarded-For 的请求）导致内存无界增长。
 const maxRateKeys = 4096
 
+// maxRateKeyEntries 单个 key 允许保留的时间戳数量上限：
+// 即便限流已打满且请求持续涌入，也不会让该 key 的无用时间戳无限堆积。
+const maxRateKeyEntries = 256
+
+// rateSweepInterval 后台定期全表清扫间隔：过期 key 不再依赖请求触发，内存上限更可控。
+const rateSweepInterval = time.Minute
+
 // allow 检查给定key在时间窗口内的请求是否超过限制。
 func (r *rateLimiter) allow(key string) bool {
 	r.mu.Lock()
@@ -41,22 +48,16 @@ func (r *rateLimiter) allow(key string) bool {
 	now := time.Now()
 	windowStart := now.Add(-r.window)
 
-	// key 总量超阈值时整体清扫一次过期 key
-	if len(r.requests) > maxRateKeys {
-		for k, ts := range r.requests {
-			if len(ts) == 0 || !ts[len(ts)-1].After(windowStart) {
-				delete(r.requests, k)
-			}
-		}
-	}
-
-	// 清理过期记录
+	// 清理过期记录（顺带截断超长时间戳，防止单 key 无界增长）
 	timestamps := r.requests[key]
 	valid := timestamps[:0]
 	for _, t := range timestamps {
 		if t.After(windowStart) {
 			valid = append(valid, t)
 		}
+	}
+	if len(valid) > maxRateKeyEntries {
+		valid = valid[len(valid)-maxRateKeyEntries:]
 	}
 	r.requests[key] = valid
 
@@ -65,6 +66,35 @@ func (r *rateLimiter) allow(key string) bool {
 	}
 	r.requests[key] = append(r.requests[key], now)
 	return true
+}
+
+// startSweep 启动后台周期清扫 goroutine：固定间隔清理过期 key，
+// 全表 key 数峰值受限于 窗口内请求速率 × 地址数，内存不再随请求量线性增长。
+func (r *rateLimiter) startSweep(stop <-chan struct{}) {
+	go func() {
+		ticker := time.NewTicker(rateSweepInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				r.sweep()
+			}
+		}
+	}()
+}
+
+// sweep 全表清扫一次过期 key。
+func (r *rateLimiter) sweep() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	windowStart := time.Now().Add(-r.window)
+	for k, ts := range r.requests {
+		if len(ts) == 0 || !ts[len(ts)-1].After(windowStart) {
+			delete(r.requests, k)
+		}
+	}
 }
 
 // 限流器实例挂在 app 上（见 app.loginLimiter），
@@ -109,10 +139,10 @@ type Dictionary struct {
 type Teacher struct {
 	ID         int64  `json:"id"`
 	Name       string `json:"name"`
-	Gender     string `json:"gender"`     // male / female
-	Age        int    `json:"age"`        // 0 = 未填
-	Subject    string `json:"subject"`    // → dictionaries(kind='subject').name
-	HasCert    int    `json:"has_cert"`   // 教师资格证 0/1
+	Gender     string `json:"gender"`   // male / female
+	Age        int    `json:"age"`      // 0 = 未填
+	Subject    string `json:"subject"`  // → dictionaries(kind='subject').name
+	HasCert    int    `json:"has_cert"` // 教师资格证 0/1
 	Phone      string `json:"phone"`
 	Education  string `json:"education"`  // → dictionaries(kind='education').name
 	University string `json:"university"` // 毕业院校
@@ -166,12 +196,48 @@ var defaultEducations = []dictSeed{
 
 // ---------- 应用 ----------
 
-// app 应用依赖：数据库、会话、请求限流。
+// app 应用依赖：数据库、会话、请求限流、API Key 加密密钥。
 type app struct {
 	db           *sql.DB
 	auth         *authStore
-	trustProxy   bool        // -trust-proxy：是否信任反向代理头（XFF/X-Real-IP）
+	trustProxy   bool         // -trust-proxy：是否信任反向代理头（XFF/X-Real-IP）
 	loginLimiter *rateLimiter // /api/login 限流：同IP每分钟10次，缓解密码爆破
+	secret       *SecretKey   // API Key 加密密钥（AES-256-GCM）；测试/未配置时为 nil
+	// siteNameMu 保护 siteName 缓存：SPA 回退注入站点名时不再查库，设置变更时失效。
+	siteNameMu     sync.Mutex
+	siteNameLoaded bool
+	siteNameVal    string
+	// extractHook 简历字段抽取的替换实现；nil 走真实模型调用（仅测试注入）。
+	extractHook extractHookFunc
+}
+
+// siteName 读取缓存的站点名；未命中缓存时查库并填充（首次请求 / 设置变更后）。
+// 站点名为空也缓存（loaded 标记），避免每次 SPA 回退都触发一次 DB 查询。
+func (a *app) siteName() string {
+	a.siteNameMu.Lock()
+	loaded, v := a.siteNameLoaded, a.siteNameVal
+	a.siteNameMu.Unlock()
+	if loaded {
+		return v
+	}
+
+	name, err := getSetting(a.db, "site_name")
+	if err != nil {
+		return ""
+	}
+	a.siteNameMu.Lock()
+	a.siteNameLoaded = true
+	a.siteNameVal = name
+	a.siteNameMu.Unlock()
+	return name
+}
+
+// invalidateSiteName 设置变更后调用：清除缓存，下次请求重新读取。
+func (a *app) invalidateSiteName() {
+	a.siteNameMu.Lock()
+	a.siteNameLoaded = false
+	a.siteNameVal = ""
+	a.siteNameMu.Unlock()
 }
 
 func nowStr() string {
@@ -241,6 +307,16 @@ CREATE INDEX IF NOT EXISTS idx_teachers_name ON teachers(name);
 CREATE TABLE IF NOT EXISTS settings (
 	key   TEXT PRIMARY KEY,
 	value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS resume_drafts (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	file_name  TEXT    NOT NULL,
+	file_type  TEXT    NOT NULL,
+	file_size  INTEGER NOT NULL DEFAULT 0,
+	page_count INTEGER NOT NULL DEFAULT 0,
+	raw_text   TEXT    NOT NULL,
+	payload    TEXT    NOT NULL,
+	created_at TEXT    NOT NULL
 );`)
 	return err
 }
@@ -614,6 +690,80 @@ func getAllSettings(db *sql.DB) (map[string]string, error) {
 		m[k] = v
 	}
 	return m, rows.Err()
+}
+
+// ---------- 简历识别草稿 ----------
+
+// ResumeDraft 简历识别的中间结果：只存归一化文本与抽取 JSON，不存原始文件。
+type ResumeDraft struct {
+	ID        int64  `json:"id"`
+	FileName  string `json:"file_name"`
+	FileType  string `json:"file_type"` // 'docx' | 'pdf'
+	FileSize  int64  `json:"file_size"`
+	PageCount int    `json:"page_count"`
+	RawText   string `json:"raw_text,omitempty"`
+	Payload   string `json:"payload"` // 抽取结果 JSON（fields + evidence + confidence + warnings）
+	CreatedAt string `json:"created_at"`
+}
+
+const resumeDraftCols = "id, file_name, file_type, file_size, page_count, raw_text, payload, created_at"
+
+func scanResumeDraft(scanner interface{ Scan(...any) error }) (*ResumeDraft, error) {
+	d := &ResumeDraft{}
+	err := scanner.Scan(&d.ID, &d.FileName, &d.FileType, &d.FileSize, &d.PageCount,
+		&d.RawText, &d.Payload, &d.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return d, nil
+}
+
+func insertResumeDraft(db *sql.DB, d *ResumeDraft) (int64, error) {
+	res, err := db.Exec(
+		`INSERT INTO resume_drafts (file_name, file_type, file_size, page_count, raw_text, payload, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		d.FileName, d.FileType, d.FileSize, d.PageCount, d.RawText, d.Payload, nowStr())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// getResumeDraft 查询单条草稿；不存在时返回 (nil, nil)。
+func getResumeDraft(db *sql.DB, id int64) (*ResumeDraft, error) {
+	return scanResumeDraft(db.QueryRow("SELECT "+resumeDraftCols+" FROM resume_drafts WHERE id = ?", id))
+}
+
+// listResumeDrafts 草稿列表（按 id 倒序分页），同时返回总数。
+func listResumeDrafts(db *sql.DB, page, size int) ([]ResumeDraft, int, error) {
+	var total int
+	if err := db.QueryRow("SELECT COUNT(*) FROM resume_drafts").Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := db.Query(
+		"SELECT "+resumeDraftCols+" FROM resume_drafts ORDER BY id DESC LIMIT ? OFFSET ?",
+		size, (page-1)*size)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	items := []ResumeDraft{}
+	for rows.Next() {
+		d, err := scanResumeDraft(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		items = append(items, *d)
+	}
+	return items, total, rows.Err()
+}
+
+func deleteResumeDraft(db *sql.DB, id int64) error {
+	_, err := db.Exec("DELETE FROM resume_drafts WHERE id = ?", id)
+	return err
 }
 
 // ---------- 用户数据访问 ----------
