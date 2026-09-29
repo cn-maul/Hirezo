@@ -1,0 +1,496 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ════════════════════════════════════════════════════════════════
+   Apple Liquid Glass — design tokens
+   Everything renders through this file. Reference via var(--…);
+   never hard-code a raw value that a token already names.
+   ════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Neutrals (the interface skeleton) ── */
+  --bg:        #f5f5f7;   /* page ground — COOL grey-white, never warm/cream */
+  --surface:   #ffffff;   /* panels / cards */
+  --hover:     #fbfbfd;   /* row hover tint */
+  --text:      #1d1d1f;   /* primary text / titles */
+  --text-body: #424245;   /* long-form body */
+  --text-2:    #6e6e73;   /* secondary / summary / meta */
+  --text-3:    #86868b;   /* tertiary / captions */
+  --text-4:    #aeaeb2;   /* placeholder / quaternary */
+  --faint:     #d2d2d7;   /* index numbers, arrows, dividers (very light) */
+  --hairline:  rgba(0,0,0,0.07);   /* the divider line — used everywhere */
+
+  /* ── Accents (emphasis ONLY — body stays grayscale) ── */
+  --accent:      #0071e3;  /* Apple blue — primary action / link / focus */
+  --accent-link: #0066cc;  /* link/tag text on tinted ground */
+  --indigo:      #5e5ce6;  /* gradient 2nd stop / supporting */
+  --x-blue:      #1d9bf0;  /* platform / brand mark */
+  --heat:        #ff6b00;  /* heat / "hottest" accent */
+  --heat-bg:     rgba(255,107,0,0.1);
+  --live:        #30d158;  /* live / online (pulsing dot) */
+
+  /* ── Signature gradients (hero / CTA / placeholder art ONLY) ── */
+  --grad-blue: linear-gradient(135deg, #0a84ff 0%, #5e5ce6 100%);
+  --grad-warm: linear-gradient(135deg, #ff9f0a 0%, #ff375f 100%);
+  --grad-green:linear-gradient(135deg, #30d158 0%, #0a84ff 100%);
+  --grad-cta:  linear-gradient(135deg, #0071e3 0%, #5e5ce6 100%);
+
+  /* ── Type ── */
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display',
+          'Helvetica Neue', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* ── Radius (semantic tiers — don't invent in-between values) ── */
+  --r-pill:  999px;  /* pills / segmented controls / tags / buttons */
+  --r-chip:  6px;    /* tiny marks (platform badge, brand monogram) */
+  --r-thumb: 12px;   /* thumbnails / small squares */
+  --r-card:  18px;   /* standard card */
+  --r-panel: 22px;   /* large panel / section container */
+  --r-hero:  26px;   /* hero / CTA / focal card */
+  --r-sheet: 16px;   /* overlay sheet/modal buttons */
+
+  /* ── Shadow (two-layer: tight contact + soft spread; never one hard shadow) ── */
+  --sh-card:    0 1px 2px rgba(0,0,0,0.05), 0 2px 8px rgba(0,0,0,0.04);
+  --sh-panel:   0 1px 3px rgba(0,0,0,0.06), 0 10px 30px rgba(0,0,0,0.055);
+  --sh-lift:    0 12px 32px rgba(0,0,0,0.1);
+  --sh-cta:     0 20px 54px rgba(0,113,227,0.24);
+  --sh-overlay: 0 2px 8px rgba(0,0,0,0.10), 0 30px 80px rgba(0,0,0,0.24);
+
+  /* ── Component greys (semantic — don't hand-pick a one-off grey) ── */
+  --track:  #e8e8ed;  /* progress/meter track, toggle-off track */
+
+  /* ── Layout ── */
+  --max-read: 720px;
+  --max-grid: 1080px;
+  --pad-x:    22px;
+
+  /* ── Motion ── */
+  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);    /* enter: sheets/dialogs/popovers (~400ms) */
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);  /* small moves: hover, segmented slide (~200ms) */
+
+  /* ══ shadcn / Tailwind bridge — mapped onto the Apple scale ══ */
+  --radius: 18px;
+  --background: var(--bg);
+  --foreground: var(--text);
+  --card: var(--surface);
+  --card-foreground: var(--text);
+  --popover: var(--surface);
+  --popover-foreground: var(--text);
+  --primary: var(--accent);
+  --primary-foreground: #ffffff;
+  --secondary: var(--track);
+  --secondary-foreground: var(--text);
+  --muted: var(--bg);
+  --muted-foreground: var(--text-2);
+  --accent-foreground: var(--text);
+  --destructive: #d70015;
+  --destructive-foreground: #ffffff;
+  --border: var(--hairline);
+  --input: var(--hairline);
+  --ring: var(--accent);
+  --sidebar: var(--bg);
+  --sidebar-foreground: var(--text-2);
+  --sidebar-border: var(--hairline);
+
+  /* ── Chart palette — grayscale-dominant, blue leads, one heat ── */
+  --chart-1: #0071e3;
+  --chart-2: #5e5ce6;
+  --chart-3: #86868b;
+  --chart-4: #aeaeb2;
+  --chart-5: #d2d2d7;
+  --chart-6: #ff6b00;
+}
+
+.dark {
+  --bg:        #000000;
+  --surface:   #1c1c1e;
+  --hover:     #2c2c2e;
+  --text:      #f5f5f7;
+  --text-body: #d2d2d7;
+  --text-2:    #98989d;
+  --text-3:    #8e8e93;
+  --text-4:    #636366;
+  --faint:     #48484a;
+  --hairline:  rgba(255,255,255,0.1);
+
+  --accent:      #0a84ff;
+  --accent-link: #2997ff;
+  --heat:        #ff9f0a;
+  --heat-bg:     rgba(255,159,10,0.14);
+  --live:        #30d158;
+
+  --sh-card:    0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.4);
+  --sh-panel:   0 1px 3px rgba(0,0,0,0.35), 0 14px 40px rgba(0,0,0,0.45);
+  --sh-lift:    0 12px 32px rgba(0,0,0,0.5);
+  --sh-cta:     0 20px 54px rgba(10,132,255,0.32);
+  --sh-overlay: 0 2px 8px rgba(0,0,0,0.4), 0 30px 80px rgba(0,0,0,0.65);
+
+  --track: #3a3a3c;
+
+  /* ── shadcn / Tailwind bridge (dark) ── */
+  --background: var(--bg);
+  --foreground: var(--text);
+  --card: var(--surface);
+  --card-foreground: var(--text);
+  --popover: #2c2c2e;
+  --popover-foreground: var(--text);
+  --primary: var(--accent);
+  --primary-foreground: #ffffff;
+  --secondary: var(--track);
+  --secondary-foreground: var(--text);
+  --muted: var(--surface);
+  --muted-foreground: var(--text-2);
+  --accent-foreground: var(--text);
+  --destructive: #ff453a;
+  --destructive-foreground: #ffffff;
+  --border: var(--hairline);
+  --input: var(--hairline);
+  --ring: var(--accent);
+  --sidebar: #1c1c1e;
+  --sidebar-foreground: var(--text-2);
+  --sidebar-border: var(--hairline);
+
+  --chart-1: #0a84ff;
+  --chart-2: #5e5ce6;
+  --chart-3: #98989d;
+  --chart-4: #636366;
+  --chart-5: #48484a;
+  --chart-6: #ff9f0a;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+
+  /* ── Semantic colour aliases for direct utility use ── */
+  --color-surface: var(--surface);
+  --color-hover: var(--hover);
+  --color-hairline: var(--hairline);
+  --color-track: var(--track);
+  --color-live: var(--live);
+  --color-heat: var(--heat);
+  --color-faint: var(--faint);
+
+  /* ── Radius tiers ── */
+  --radius-sm: var(--r-chip);
+  --radius-md: var(--r-thumb);
+  --radius-lg: var(--r-card);
+  --radius-xl: var(--r-panel);
+  --radius-2xl: var(--r-hero);
+  --radius-pill: var(--r-pill);
+
+  /* ── Type ── */
+  --font-sans: var(--font);
+  --font-mono: var(--mono);
+
+  /* ── Shadow tiers ── */
+  --shadow-card: var(--sh-card);
+  --shadow-panel: var(--sh-panel);
+  --shadow-lift: var(--sh-lift);
+  --shadow-cta: var(--sh-cta);
+  --shadow-overlay: var(--sh-overlay);
+
+  /* ── Motion ── */
+  --ease-spring: var(--ease-spring);
+  --ease-out-quart: var(--ease-out-quart);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    line-height: 1.6;
+  }
+  /* Titles carry negative tracking; body text does not. */
+  h1, h2, h3, h4 {
+    letter-spacing: -0.022em;
+    line-height: 1.15;
+  }
+  /* Numbers that sit in columns must not jitter. */
+  table, .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  /* Native checkboxes render as a light chip by default; in dark mode that
+     becomes a glaring white square. Tint unchecked boxes to the track grey and
+     let the accent fill the checked state. */
+  input[type='checkbox'] {
+    accent-color: var(--accent);
+    color-scheme: inherit;
+  }
+  .dark input[type='checkbox']:not(:checked) {
+    appearance: none;
+    border: 1.5px solid var(--text-4);
+    border-radius: 4px;
+    background: transparent;
+  }
+  .dark input[type='checkbox']:checked {
+    appearance: none;
+    border: 1.5px solid var(--accent);
+    border-radius: 4px;
+    background: var(--accent);
+  }
+  /* Focus is a soft ring, never a hard browser outline. */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  /* Surface elevation: on the #f5f5f7 ground, a pure-white panel with only a
+     shadow reads as "washed out". Pair the shadow with a 1px hairline ring so
+     the edge is always crisp, in both themes. */
+  .surface-card {
+    background: var(--surface);
+    box-shadow: var(--sh-card);
+    outline: 1px solid var(--hairline);
+    outline-offset: -1px;
+  }
+  .surface-panel {
+    background: var(--surface);
+    box-shadow: var(--sh-panel);
+    outline: 1px solid var(--hairline);
+    outline-offset: -1px;
+  }
+
+  /* ── Category pill ───────────────────────────────────────────────
+     Category colors come from backend config (user data), so they can't be
+     part of the palette — but a 6px dot inside a grey pill is effectively
+     invisible. Compromise: the color tints the pill, the label takes the same
+     hue. `--cat` is set inline by categoryTint(). Falls back to neutral grey
+     when the value is missing or malformed. */
+  .cat-pill {
+    background: color-mix(in srgb, var(--cat, var(--track)) 14%, var(--surface));
+    color: color-mix(in srgb, var(--cat, var(--text-2)) 62%, var(--text));
+    border: 1px solid color-mix(in srgb, var(--cat, transparent) 30%, transparent);
+  }
+  /* On black ground a 14% tint vanishes and 62% ink goes muddy — push both. */
+  .dark .cat-pill {
+    background: color-mix(in srgb, var(--cat, var(--track)) 24%, var(--surface));
+    color: color-mix(in srgb, var(--cat, var(--text-2)) 68%, #ffffff);
+    border-color: color-mix(in srgb, var(--cat, transparent) 38%, transparent);
+  }
+
+  /* ── Liquid-glass frost — ONLY on sticky nav / overlay / colored CTA ── */
+  .glass-nav {
+    background: rgba(245, 245, 247, 0.72);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+  }
+  .dark .glass-nav {
+    background: rgba(0, 0, 0, 0.6);
+  }
+  .glass-chip {
+    background: rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  /* Hairline separator that does not double up at first/last position. */
+  .divide-hairline > * + * {
+    border-top: 1px solid var(--hairline);
+  }
+}
+
+/* Live / online pulsing dot */
+@keyframes pulse-dot {
+  0%   { box-shadow: 0 0 0 0 rgba(48, 209, 88, 0.5); }
+  70%  { box-shadow: 0 0 0 7px rgba(48, 209, 88, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(48, 209, 88, 0); }
+}
+.animate-pulse-dot {
+  animation: pulse-dot 2s var(--ease-out-quart) infinite;
+}
+
+/* ── Materialize on mount (motion.md §5) ───────────────────────────
+   Radix mounts interactive layers already in the open state, so a plain
+   `data-[state=open]:scale-100` has nothing to transition FROM — the layer
+   just pops. `@starting-style` declares the before-change style for an
+   element's first rendered frame, which is exactly the missing piece:
+   enter now travels blur+scale+opacity, exit uses the same path reversed. */
+@layer utilities {
+  .materialize {
+    transition-property: opacity, scale, filter;
+    transition-duration: 400ms;
+    transition-timing-function: var(--ease-spring);
+    will-change: scale, opacity, filter;
+  }
+  .materialize[data-state='open'] {
+    opacity: 1;
+    scale: 1;
+    filter: blur(0);
+  }
+  /* Exit is faster and shares the path (motion.md §4). */
+  .materialize[data-state='closed'] {
+    opacity: 0;
+    scale: 0.96;
+    filter: blur(6px);
+    transition-duration: 260ms;
+  }
+  /* Declared AFTER the open rule on purpose: same specificity, so source
+     order decides. Placed before it, the open rule wins and the layer pops. */
+  @starting-style {
+    .materialize[data-state='open'] {
+      opacity: 0;
+      scale: 0.96;
+      filter: blur(6px);
+    }
+  }
+}
+
+/* Scrim fades slightly faster than the surface, so the surface is the star. */
+@layer utilities {
+  .scrim {
+    transition: opacity 250ms var(--ease-spring);
+  }
+  .scrim[data-state='closed'] { opacity: 0; }
+  .scrim[data-state='open']   { opacity: 1; }
+
+  /* Lighter cousin for popovers (menu / select): scale + opacity, no blur —
+     the blur is reserved for glass surfaces. Radix's transform-origin var
+     survives because we animate `scale`, not `transform`. */
+  .materialize-pop {
+    transition-property: opacity, scale;
+    transition-duration: 220ms;
+    transition-timing-function: var(--ease-spring);
+  }
+  .materialize-pop[data-state='open'] {
+    opacity: 1;
+    scale: 1;
+  }
+  .materialize-pop[data-state='closed'] {
+    opacity: 0;
+    scale: 0.97;
+    transition-duration: 160ms;
+  }
+  @starting-style {
+    .materialize-pop[data-state='open'] {
+      opacity: 0;
+      scale: 0.97;
+    }
+  }
+
+  /* Tooltip: same single-frame fix, but it keeps its quicker out-quart easing
+     (motion.md §2: small moves get --ease-out-quart, not the spring). */
+  .materialize-tip {
+    transition-property: opacity, scale;
+    transition-duration: 200ms;
+    transition-timing-function: var(--ease-out-quart);
+  }
+  .materialize-tip[data-state='delayed-open'],
+  .materialize-tip[data-state='instant-open'] {
+    opacity: 1;
+    scale: 1;
+  }
+  .materialize-tip[data-state='closed'] {
+    opacity: 0;
+    scale: 0.96;
+    transition-duration: 130ms;
+  }
+  @starting-style {
+    .materialize-tip[data-state='delayed-open'],
+    .materialize-tip[data-state='instant-open'] {
+      opacity: 0;
+      scale: 0.96;
+    }
+  }
+}
+
+/* ── Motion politeness (see motion.md) ─────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* Gentler, not none (motion.md §8): keep the cross-fade, drop the travel. */
+  .materialize, .materialize-pop, .materialize-tip {
+    transition-duration: 180ms !important;
+    transition-property: opacity !important;
+  }
+  @starting-style {
+    .materialize[data-state='open'],
+    .materialize-pop[data-state='open'],
+    .materialize-tip[data-state='delayed-open'],
+    .materialize-tip[data-state='instant-open'] {
+      opacity: 0;
+      scale: 1;
+      filter: none;
+    }
+  }
+  .materialize[data-state='closed'],
+  .materialize-pop[data-state='closed'],
+  .materialize-tip[data-state='closed'] {
+    scale: 1;
+    filter: none;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass-nav, .glass-chip {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--surface);
+  }
+  /* Scrims and floating layers stop being translucent too. */
+  [data-slot='dialog-overlay'], [data-slot='alert-dialog-overlay'] {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(0, 0, 0, 0.42);
+  }
+  [data-slot='tooltip-content'] {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  /* Blur is part of the materialize; without translucency it reads as mush. */
+  .materialize, .materialize-pop, .materialize-tip { filter: none !important; }
+  @starting-style {
+    .materialize { filter: none; }
+  }
+}
+@media (prefers-contrast: more) {
+  :root {
+    --hairline: rgba(0, 0, 0, 0.28);
+    --text-2:   #4a4a4f;
+    --text-3:   #5c5c61;
+  }
+  .glass-nav, .glass-chip {
+    background: var(--surface);
+  }
+}

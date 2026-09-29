@@ -1,0 +1,13 @@
+hirezo.exe
+hirezo
+hirezo-linux-amd64
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.bat
+.git
+.gitignore
+docs/
+**/node_modules
+web/dist

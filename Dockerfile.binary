@@ -1,0 +1,16 @@
+# ============================================
+# Hirezo 教师管理系统 - 使用预编译二进制的最小镜像
+# 不想跑 Docker 构建时，先执行 ./build.sh linux amd64 得到 hirezo-linux-amd64，
+# 再把该文件与本文件放到同一目录后执行：
+#   docker build -t hirezo -f Dockerfile.binary .
+#   docker run -d -p 8080:8080 -v hirezo-data:/data --name hirezo hirezo
+# ============================================
+
+FROM scratch
+COPY hirezo-linux-amd64 /hirezo
+ENV TZ=Asia/Shanghai
+WORKDIR /data
+EXPOSE 8080
+VOLUME ["/data"]
+ENTRYPOINT ["/hirezo"]
+CMD ["-db", "/data/hirezo.db"]
