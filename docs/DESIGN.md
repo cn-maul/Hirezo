@@ -25,12 +25,13 @@
 | 大模型接入 | `github.com/cn-maul/rosetta` v0.5.1 | 统一 OpenAI Chat / Responses / Anthropic Messages 三协议，零第三方依赖，Go 1.27 |
 | PDF 文本抽取 | `github.com/ledongthuc/pdf` | 纯 Go 文本层抽取；无文本层的扫描件转 `pdftoppm` 渲染 |
 | 前端 | Vue 3 + TypeScript + Vite | 复用 tix 界面风格 |
+| 简历原件预览 | `docx-preview`（前端） | docx 在识别页左侧渲染版式；懒加载独立分块，仅识别页加载 |
 | 样式 | 自实现 CSS（CSS 变量设计令牌，HeroUI 风格） | 无业务组件库、无 Tailwind |
 | 路由 / 数据 | `vue-router` + 自写 `useQuery` composable | 轻量、零额外依赖 |
 | HTTP | `axios`（统一封装于 `src/api/client.ts`） | |
 | 静态资源 | `embed.FS`（`//go:embed web/dist`） | 前端产物编译进二进制 |
 
-依赖总量：后端 5 个直接依赖（sqlite / crypto / excelize / rosetta / ledongthuc-pdf），前端 4 个直接依赖（vue / vue-router / lucide-vue-next / axios）。
+依赖总量：后端 5 个直接依赖（sqlite / crypto / excelize / rosetta / ledongthuc-pdf），前端 5 个直接依赖（vue / vue-router / lucide-vue-next / axios / docx-preview）。
 
 ## 3. 系统架构
 
@@ -73,7 +74,7 @@ Hirezo/
 
 ### 3.3 中间件
 
-- `securityHeaders`：`X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy: same-origin`、CSP（`default-src 'self'` 等）。
+- `securityHeaders`：`X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy: same-origin`、CSP（`default-src 'self'` 等；`frame-src 'self' blob:` 是简历原件预览用 blob iframe 渲染的前提）。
 - `authMiddleware`：路径以 `/api/` 开头且不在 `publicAPI` 白名单内时校验会话，未通过返回 401。
 - `publicAPI` 白名单：`/api/health`、`/api/login`、`/api/logout`、`/api/auth/status`、`/api/settings`。简历识别与模型配置接口均需登录。
 
@@ -116,6 +117,7 @@ CREATE TABLE teachers (
   university   TEXT    NOT NULL DEFAULT '',      -- 毕业院校
   major        TEXT    NOT NULL DEFAULT '',      -- 专业
   remark       TEXT    NOT NULL DEFAULT '',
+  resume_file  TEXT    NOT NULL DEFAULT '',      -- 入库简历原件的文件名（仅文件名，位于 resumes 目录），空 = 手工录入无原件
   created_at   TEXT    NOT NULL,
   updated_at   TEXT    NOT NULL
 );
@@ -148,7 +150,7 @@ CREATE TABLE resume_drafts (
 - **性别**为固定枚举，不进字典。
 - **年龄**直接存整数（0 = 未填），按需求 18–100；后续如需精算可加 `birth_date`（待定项）。
 - **硬删除**：`DELETE FROM teachers WHERE id=?`，无回收站。
-- **草稿不存文件**：`resume_drafts` 只留归一化文本与抽取 JSON，原始简历仅在请求期间驻留内存/临时目录，不留档、不进备份。
+- **简历原件的存放**：`teachers.resume_file` 只存文件名，不存路径（防止目录搬迁后数据失效）；物理文件在 `resumes/{教师ID}.{ext}`。识别阶段的原件先落 `resumes/drafts/{草稿ID}.{ext}`，入库时 move 进永久目录，丢弃草稿或进程重启时清理临时目录（`clearDraftResumeFiles`）。数据库与文件系统不做事务，写 `resume_file` 失败只记日志，不影响人员入库。
 
 ### 种子数据
 
@@ -202,7 +204,8 @@ CREATE TABLE resume_drafts (
 | POST | `/api/teachers/batch-delete` | `{ids:[...]}` → `{data:{ok,deleted}}` |
 | GET | `/api/teachers/{id}` | 详情 → `{data:Teacher}` |
 | PUT | `/api/teachers/{id}` | 修改 → `{data:Teacher}` |
-| DELETE | `/api/teachers/{id}` | 硬删除 → `{data:{ok:true}}` |
+| DELETE | `/api/teachers/{id}` | 硬删除 → `{data:{ok:true}}`，同时清理其归档简历原件 |
+| GET | `/api/teachers/{id}/resume` | 下载入库简历原件（二进制流，`attachment; filename*=UTF-8''{姓名}-简历.{ext}`）；无原件 404，未登录 401 |
 | GET | `/api/dictionaries/{kind}` | `kind ∈ subject\|education` → `{data:[...]}` |
 | POST | `/api/dictionaries/{kind}` | 新增 → 201 `{data:Dictionary}` |
 | PUT | `/api/dictionaries/{kind}/{id}` | 部分更新（指针字段）→ `{data:Dictionary}` |
@@ -270,13 +273,12 @@ CREATE TABLE resume_drafts (
 | `/login` | 登录 | 无侧边栏 |
 | `/` | → `/teachers` | 重定向 |
 | `/teachers` | 人员列表 | 搜索 + 筛选 + 表格 + 分页 + 新增/导出 |
-| `/teachers/:id` | 人员详情 | 只读字段 + 编辑/删除入口 |
-| `/resume` | 简历识别 | 上传 → 高亮表单 → 确认入库；下方草稿列表 |
+| `/teachers/:id` | 人员详情 | 只读字段（与核对表单同样两列成行：姓名/性别、年龄/电话、学历/院校、学科/专业，资格证与备注整幅；≤720px 退回单列）+ 下载简历原件（有归档原件时）+ 编辑/删除入口 |
+| `/resume` | 简历识别 | 无页头标题：选择文件后进入左右等高双栏（左=原件预览，右=识别进度 → 完成后右侧就地变成核对表单，两栏各占一屏高度，栏内独立滚动） |
 | `/settings` | 设置布局 | 子路由重定向到 general |
 | `/settings/general` | 通用 | 站点名称 |
 | `/settings/dicts` | 字典管理 | 学科 / 学历两个 Tab |
 | `/settings/llm` | 模型配置 | 端点 / 协议 / 模型 / API Key |
-| `/settings/data` | 数据与备份 | 说明页 |
 | `*` | 404 | |
 
 **守卫**：`RequireAuth` 调 `GET /api/auth/status`，未登录跳 `/login?next=…`。`client.ts` 拦截器对 401 统一跳登录。
@@ -288,12 +290,13 @@ Layout.vue            侧边栏（人员管理 / 简历识别 / 系统设置）+
 PageHeader.vue        标题 + 主操作按钮
 DataTable.vue         DataTable / PaginationBar（通用）
 TeacherFilters.vue    姓名搜索（300ms 防抖 + URL 同步）+ 学科/性别/学历/证书 下拉 + 导出
-TeacherFormDialog.vue 新增/编辑弹窗（同一组件，2 列网格）；M4 增加 fieldMeta 高亮模式
+TeacherForm.vue       人员表单（字段清单驱动的双列网格：姓名/性别、年龄/电话、学历/院校、学科/专业成行，备注与资格证整幅）；弹窗与识别页共用
+TeacherFormDialog.vue 新增/编辑弹窗：只负责 Dialog 外壳，表单交给 TeacherForm
 DeleteConfirm.vue     危险操作二次确认
 AccountDialog.vue     修改密码
 Dicts.vue             字典管理（Tab 切换 kind）
 LLM.vue               模型配置（端点/协议/模型/API Key + 连通性说明）
-Resume.vue            简历识别：拖拽上传 → 解析进度 → 高亮表单 → 确认入库 + 草稿列表
+Resume.vue            简历识别：拖拽上传 → 「左预览 / 右进度」等高双栏（docx 用 docx-preview 渲染、PDF 用 blob 原生 iframe）→ 识别完成右侧内嵌核对表单
 ```
 
 **列表列**：姓名（跳详情）/ 性别 / 年龄 / 学科（色胶囊）/ 教师资格证 / 联系电话 / 学历 / 毕业院校 / 专业 / 录入时间 / 操作（查看 · 编辑 · 删除）。支持多选批量删除。
@@ -324,12 +327,15 @@ go run .
 | 数据库路径 | `-db` flag | `hirezo.db` |
 | 初始密码 | `-password` flag / `HIREZO_PASSWORD` | `admin123` |
 | 信任代理头 | `-trust-proxy` flag | 关（直连部署勿开） |
+| 简历原件目录 | `-resume-dir` flag | 数据库同目录 `resumes/`（草稿临时文件在其 `drafts/` 子目录） |
 
 - **embed 前置条件**：`web/dist` 必须存在，否则 `go build` 失败；先跑前端构建。
 - **预压缩**：Vite 插件在构建期生成 `.gz` / `.br`，运行时按 `Accept-Encoding` 优先返回；`index.html` 不走预压缩（需动态注入站点名到 `<title>`）。
 - **缓存**：`assets/` 下 hashed 资源 `immutable` 长缓存，`index.html` `no-cache`。
-- **数据备份**：停机复制 `hirezo.db`（WAL 模式含 `-wal`/`-shm` 伴生文件），或在线 `VACUUM INTO` 快照。
-- **Docker**：三阶段构建（node 构建前端 → go 编译 → alpine 运行）。运行镜像必须带 `ca-certificates`（否则 HTTPS 调不通大模型接口）与 `poppler-utils`（提供 `pdftoppm`，扫描件识别用），两者均随 Dockerfile 一起装好；二进制自行部署时缺失 `pdftoppm` 只影响扫描件，会明确报错。
+- **数据备份**：停机复制 `hirezo.db`（WAL 模式含 `-wal`/`-shm` 伴生文件），或在线 `VACUUM INTO` 快照。**简历原件不在库内**，需连同 `resumes/` 目录一起拷贝，否则详情页「下载简历」会 404。
+- **Docker**：三阶段构建（node 构建前端 → go 编译 → alpine 运行）。运行镜像必须带 `ca-certificates`（否则 HTTPS 调不通大模型接口）与 `poppler-utils`（提供 `pdftoppm`，扫描件识别用），两者均随 Dockerfile 一起装好；二进制自行部署时缺失 `pdftoppm` 只影响扫描件，会明确报错。运行阶段 `ENV PORT=8882` + `EXPOSE 8882`，`-db /data/hirezo.db`，数据（库、`.hirezo-secret`、`resumes/`）全在 `/data` 卷里。
+- **镜像流水线**：`.github/workflows/docker.yml` 在推送 `v*` 标签（或手动触发）时构建 `linux/amd64` 单架构镜像并推 `ghcr.io/<owner>/<repo>`；镜像 tag 读 `web/package.json` 的 `version`（界面右上角同源），标签与版本号不一致直接 `::error::` 失败，标签触发时额外推 `:latest`。推送鉴权用仓库自带的 `GITHUB_TOKEN` + `permissions: packages: write`，不落任何 PAT。
+- **构建上下文**：`.dockerignore` 排除 `*.db`、`.hirezo-secret`、`resumes/`、`web/dist`、`node_modules`，避免本地数据与简历原件被送进 daemon/runner。
 - **模型配置**：存 `settings` 表（见 10.4），改完即生效，无需重启。
 
 ## 9. 错误处理与日志
@@ -343,13 +349,16 @@ go run .
 ### 10.1 流程
 
 ```
-[前端] 选择 .docx / .pdf（≤10MB）
+[前端] 选择 .docx / .pdf（≤10MB）→ 立即进入「左原件预览 / 右识别进度」双栏
    ↓ POST /api/resume/parse（multipart，同步等待）
 [服务端] 魔数校验 → 抽取文本 / 渲染页图 → 构造 prompt → rosetta.Chat → 容错解析 JSON
-        → 字段闸门（正则 + 字典白名单）→ 写 resume_drafts → 201 {data:Draft}
-[前端] TeacherFormDialog 高亮模式预填 → 人工修正
+        → 字段闸门（正则 + 字典白名单）→ 写 resume_drafts + 原件落 resumes/drafts/{草稿ID}.{ext}
+        → 201 {data:Draft}
+[前端] 识别完成时右侧分栏就地换成 TeacherForm（fieldMeta 高亮预填，原件预览保持在左栏）→ 人工修正
    ↓ POST /api/resume/drafts/{id}/commit {fields}
-[服务端] validateTeacher → createTeacher → 删除草稿 → 201 {data:Teacher}
+[服务端] validateTeacher → createTeacher → 草稿原件 move 到 resumes/{教师ID}.{ext} 并写 resume_file
+        → 删除草稿 → 201 {data:Teacher}
+[前端] 人员详情页「下载简历」→ GET /api/teachers/{id}/resume（服务端鉴权后 ServeContent）
 ```
 
 模型调用是同步阻塞的（通常 3–30s），因此 `/api/resume/parse` 走 90s 上下文超时，服务端 `WriteTimeout` 相应放宽到 120s。
@@ -364,7 +373,8 @@ go run .
 | 其他 | — | 400 拒绝（`.doc`、jpg/png 一律不收） |
 
 - **判定一律看魔数**，扩展名仅作提示；大小上限 10MB，页数上限 10，超出返回 400。
-- **文件不留档**：docx / 文本层 PDF 全程在内存中解析；只有扫描件渲染必须经临时目录（`os.MkdirTemp`），请求结束即整体删除。数据库只存归一化文本与抽取 JSON，不存原始简历。
+- **原件归档**：解析全程在内存中进行，识别成功后把原件写入 `resumes/drafts/{草稿ID}.{ext}`（0600）；入库成功才 move 到 `resumes/{教师ID}.{ext}` 并记 `resume_file`。丢弃草稿、覆盖重传、进程启动时都会清理 `drafts/`（`clearDraftResumeFiles`），删除教师时清理对应归档文件。扫描件渲染另需 `os.MkdirTemp` 存放页图，请求结束即整体删除。
+- **归档失败不阻断录入**：写临时原件或 move 失败只记日志，人员照常入库，`resume_file` 留空（详情页不显示下载按钮）。
 - 服务器缺 `pdftoppm` 且遇到扫描件 → 500 明确提示「缺少 poppler-utils」，**不静默降级**（启动日志会打印检测结果）。
 
 ### 10.3 抽取契约与字段闸门
@@ -415,20 +425,28 @@ go run .
 
 ### 10.5 接口与权限
 
-- `parse` / `drafts*` 全部需登录会话（不在 `publicAPI` 白名单内）；`settings/llm` 需管理员。
-- 提交入库完全复用 `validateTeacher` + `createTeacher`，不新增写入逻辑；`commit` 成功后删除对应草稿。
+- `parse` / `drafts*` / `teachers/{id}/resume` 全部需登录会话（不在 `publicAPI` 白名单内）；`settings/llm` 需管理员。
+- 提交入库完全复用 `validateTeacher` + `createTeacher`，不新增写入逻辑；`commit` 成功后删除对应草稿，并把草稿原件 move 成 `resumes/{教师ID}.{ext}`。
+- 下载按文件名从 `resumeDir` 取，路径只由「教师 ID + 库里存的扩展名」拼出，不接受用户输入的路径片段；教师不存在、`resume_file` 为空或物理文件缺失，一律 404。
+- 删除教师（单条与批量）后清理其归档原件；清理失败只记日志，不影响删除结果。
 - 草稿列表按 id 倒序分页，复用 `pagination`。
 
 ### 10.6 前端
 
-- `/resume`：拖拽/点击上传（accept 仅 `.docx,.pdf`）→ 上传中禁用按钮 + 进度文案 → 拿到 Draft 后打开 `TeacherFormDialog`（`fieldMeta` 模式）。
-- `fieldMeta: Record<field, {evidence, confidence, level}>`：命中字段下方渲染证据引文条与置信度；`level=warn` 黄框、`level=error` 红框；warning 汇总为表单顶部提示。
-- 底部「识别记录」列出草稿：文件名 / 识别时间 / 状态，支持「继续录入」（重新打开表单）与「丢弃」。
-- 未配置模型时 `/resume` 顶部显示配置引导条，点击跳 `/settings/llm`。
+- `/resume`：无页头标题（省掉一行说明文字），拖拽/点击上传（accept 仅 `.docx,.pdf`，本地先校验扩展名与 10MB）→ 立即切换到识别会话双栏（整块 `margin-top: -16px` 吃掉一半上留白好让位给内容，`height: calc(100vh - 112px)` = 顶栏 64 + 上留白 16 + 下留白 32，两栏等高且刚好占满一屏、底部仍留一圈白边而不是贴住页面下缘；`grid-template-rows: minmax(0, 1fr)` 让栅格行不随内容长高，栏内独立滚动而不是把整页撑长；列宽 `minmax(0, 1fr) clamp(420px, 42%, 560px)`，右栏保底 420px 才排得下两列，其余宽度都留给原件预览；≤900px 退回上下堆叠）：
+  - 左：原件预览（不显示文件名标题）。PDF 用 `URL.createObjectURL` + 原生 `<iframe>`；docx 动态 `import('docx-preview')` 渲染（独立懒加载分块，只有识别页才加载），离开页面/结束会话时 `revokeObjectURL` 并清空容器。
+  - 右：识别状态（转圈 + 「AI 正在识别…」+ 文件类型/大小 + 已用时计时）、失败时显示服务端错误文案与「重试 / 放弃」；识别成功后右栏直接换成内嵌的 `TeacherForm`，不再有弹窗层级，也不加「识别结果 · 请核对」这类小标题——表单第一行就是姓名。点开学科/学历下拉时 `TeacherForm.revealSelect` 会把该字段滚到面板上沿，避免 300px 弹层被滚动容器裁掉。
+- `TeacherForm` 的字段顺序即双列栅格的成行关系：`FIELDS` 按 姓名/性别、年龄/联系电话、学历/毕业院校、学科/专业 排成四行两列，备注与资格证用 `full` 占整行（`grid-column: 1 / -1`）；下拉在表单里改成 `display: block` + 触发器 `width: 100%`，与输入框右边缘对齐。新增/编辑弹窗共用同一份顺序，窄视口（<640px）自动退回单列。
+  - 「返回上传」即结束本次核对，回到上传区重新选文件；不再展示草稿列表。
+- `fieldMeta: Record<field, {evidence, confidence, level}>`：识别依据与置信度**不再逐项显示**，「识别原文」折叠区也已去掉（页面上每项下方只在校验不通过时有一行错误），核对原件靠左侧预览；`level=warn` 黄框、`level=error` 红框仍按字段着色，warning 汇总为表单顶部提示。证据与原文仍留在草稿库里，只是不再渲染。
+- 草稿列表（旧「识别记录」区）已从页面移除：`GET/DELETE /api/resume/drafts*` 接口保留（入库仍按草稿 ID 提交），未核对的草稿原件由进程启动时的 `clearDraftResumeFiles` 清理。
+- 未配置模型时 `/resume` 顶部显示配置引导条，点击跳 `/settings/llm`，上传按钮同步禁用。
+- 人员详情页在 `teacher.resume_file` 非空时显示「下载简历」，走 axios `responseType: 'blob'` 携会话下载后触发保存，失败 toast 提示（直接 `<a href>` 导航时 401 会被存成错误文件）。
 
 ### 10.7 隐私与安全
 
 - 简历正文与模型返回**不写日志**；数据库只存归一化文本与 JSON。
+- **原件属个人敏感信息**：`resumes/` 目录 0700、文件 0600，只按库内文件名读取，不做目录列表、不提供公开访问；备份范围因此包含该目录，同时该目录已进 `.gitignore`，原件不会随代码入库。
 - 上传大小上限 10MB；类型按魔数判定；`ParseMultipartForm` 显式限额。
 - 模型配置仅管理员可读写；API Key 永不回显原文。
 
@@ -440,6 +458,7 @@ go run .
 | M2 人员管理 | teachers CRUD + 分页/搜索/筛选 + 弹窗表单 + 详情页 + 前后端校验 | ✅ |
 | M3 完善 | 字典管理页 + xlsx 导出 + 批量删除 + 测试与打磨 | ✅ |
 | M4 简历识别 | docx/pdf 解析 + Rosetta 抽取 + 字段闸门 + 草稿高亮表单 + 入库 | ✅ |
+| M5 识别体验与归档 | 识别页左右分栏（原件预览 + 进度）+ 完成后右栏内嵌核对表单 + 简历原件归档与详情页下载 | ✅ |
 
 ## 12. 从 tix 裁剪的记录
 

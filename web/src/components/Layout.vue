@@ -1,16 +1,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  Users,
-  Settings,
-  Sun,
-  Moon,
-  LogOut,
-  PanelLeft,
-  GraduationCap,
-  FileSearch,
-} from 'lucide-vue-next'
+import Users from 'lucide-vue-next/dist/esm/icons/users.js'
+import Settings from 'lucide-vue-next/dist/esm/icons/settings.js'
+import Sun from 'lucide-vue-next/dist/esm/icons/sun.js'
+import Moon from 'lucide-vue-next/dist/esm/icons/moon.js'
+import LogOut from 'lucide-vue-next/dist/esm/icons/log-out.js'
+import PanelLeft from 'lucide-vue-next/dist/esm/icons/layout-panel-left.js'
+import GraduationCap from 'lucide-vue-next/dist/esm/icons/graduation-cap.js'
+import FileSearch from 'lucide-vue-next/dist/esm/icons/file-search.js'
 import Button from '@/components/ui/Button.vue'
 import Tooltip from '@/components/ui/Tooltip.vue'
 import AccountDialog from '@/components/AccountDialog.vue'

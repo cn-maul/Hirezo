@@ -81,4 +81,16 @@ export function isResumeFile(file: File): boolean {
   return /\.(docx|pdf)$/i.test(file.name)
 }
 
+/** 下载入库简历原件（blob 走 axios 以便 401/404 可被捕获提示） */
+export async function downloadTeacherResume(id: number, name: string): Promise<void> {
+  const r = await client.get<Blob>(`/teachers/${id}/resume`, { responseType: 'blob' })
+  const ext = r.data.type === 'application/pdf' ? 'pdf' : 'docx'
+  const url = URL.createObjectURL(r.data)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${name}-简历.${ext}`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export const RESUME_MAX_BYTES = 10 << 20

@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { Download, Search } from 'lucide-vue-next'
+import Download from 'lucide-vue-next/dist/esm/icons/download.js'
+import Search from 'lucide-vue-next/dist/esm/icons/search.js'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
 import Select from '@/components/ui/Select.vue'
 import SelectItem from '@/components/ui/SelectItem.vue'
+import { genderLabel } from '@/api/teachers'
 
 export interface TeacherFilterValues {
   keyword: string
@@ -62,7 +64,7 @@ const emit = defineEmits<{
       "
     >
       <template #value="{ selected }">
-        {{ selected === ALL ? '性别' : selected === 'male' ? '男' : '女' }}
+        {{ selected === ALL ? '性别' : genderLabel[selected] }}
       </template>
       <SelectItem :value="ALL">全部性别</SelectItem>
       <SelectItem value="male">男</SelectItem>

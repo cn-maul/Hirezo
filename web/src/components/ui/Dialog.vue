@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { X } from 'lucide-vue-next'
+import X from 'lucide-vue-next/dist/esm/icons/x.js'
 import { useClass } from '@/lib/utils'
 
 const props = withDefaults(

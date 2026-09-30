@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft } from 'lucide-vue-next'
+import ArrowLeft from 'lucide-vue-next/dist/esm/icons/arrow-left.js'
 import Button from '@/components/ui/Button.vue'
 import { useClass } from '@/lib/utils'
 

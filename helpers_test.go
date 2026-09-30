@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -14,7 +15,8 @@ import (
 // newTestApp 构建完整应用（含中间件链），使用临时 SQLite 文件库。
 func newTestApp(t *testing.T) (*app, *httptest.Server) {
 	t.Helper()
-	db, err := openDB(filepath.Join(t.TempDir(), "test.db"))
+	tmp := t.TempDir()
+	db, err := openDB(filepath.Join(tmp, "test.db"))
 	if err != nil {
 		t.Fatalf("打开测试库失败: %v", err)
 	}
@@ -29,9 +31,16 @@ func newTestApp(t *testing.T) (*app, *httptest.Server) {
 		t.Fatalf("setupDefaultAdmin 失败: %v", err)
 	}
 	a := &app{
-		db:           db,
-		auth:         newAuthStore(),
-		loginLimiter: newRateLimiter(10, time.Minute),
+		db:             db,
+		auth:           newAuthStore(),
+		loginLimiter:   newRateLimiter(10, time.Minute),
+		resumeDir:      filepath.Join(tmp, "resumes"),
+		resumeDraftDir: filepath.Join(tmp, "resumes", "drafts"),
+	}
+	for _, d := range []string{a.resumeDir, a.resumeDraftDir} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatalf("创建简历测试目录失败: %v", err)
+		}
 	}
 	srv := httptest.NewServer(securityHeaders(a.authMiddleware(a.routes())))
 	t.Cleanup(srv.Close)

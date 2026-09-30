@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import { FileQuestion } from 'lucide-vue-next'
+import FileQuestion from 'lucide-vue-next/dist/esm/icons/file-question.js'
 import Button from '@/components/ui/Button.vue'
 
 const router = useRouter()

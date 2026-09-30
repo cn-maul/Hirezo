@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -430,8 +431,9 @@ func renderPDFPages(ctx context.Context, data []byte, maxPages int) (b64 []strin
 		return nil, fmt.Errorf("写入临时文件失败: %w", err)
 	}
 	prefix := filepath.Join(dir, "page")
+	// pdftoppm 的参数顺序是 PDF-file 在前、输出 root 在后，反了会把 root 当输入去打开
 	cmd := exec.CommandContext(ctx, bin, "-png", "-r", "150",
-		"-f", "1", "-l", strconv.Itoa(maxPages), prefix, src)
+		"-f", "1", "-l", strconv.Itoa(maxPages), src, prefix)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -1004,6 +1006,165 @@ func normalizePhone(s string) string {
 	return s
 }
 
+// ---------- 简历原文件存储 ----------
+
+// resumeExt 按识别类型返回落盘扩展名。
+func resumeExt(kind string) string {
+	if kind == "pdf" {
+		return ".pdf"
+	}
+	return ".docx"
+}
+
+// resumeFilePath 永久库中的物理路径（resumes/{教师ID}.{ext}）。
+func (a *app) resumeFilePath(file string) string {
+	if a.resumeDir == "" || file == "" {
+		return ""
+	}
+	return filepath.Join(a.resumeDir, file)
+}
+
+// draftResumePath 草稿临时文件的物理路径（drafts/{草稿ID}.{ext}）。
+func (a *app) draftResumePath(draftID int64, kind string) string {
+	if a.resumeDraftDir == "" {
+		return ""
+	}
+	return filepath.Join(a.resumeDraftDir, strconv.FormatInt(draftID, 10)+resumeExt(kind))
+}
+
+// saveDraftResumeFile 识别成功后保存原件到临时目录；失败只记日志（识别结果不受影响，
+// 但 commit 时无法归档原件，入库将不带简历文件）。
+func (a *app) saveDraftResumeFile(draftID int64, kind string, data []byte) {
+	p := a.draftResumePath(draftID, kind)
+	if p == "" {
+		return
+	}
+	if err := os.WriteFile(p, data, 0o600); err != nil {
+		log.Printf("[简历] 保存草稿原件失败 draft=%d: %v", draftID, err)
+	}
+}
+
+// commitResumeFile 把草稿临时原件移动到永久目录，返回入库文件名；无原件或移动失败返回空串。
+func (a *app) commitResumeFile(draftID int64, kind string, teacherID int64) string {
+	src := a.draftResumePath(draftID, kind)
+	if src == "" || a.resumeDir == "" {
+		return ""
+	}
+	if _, err := os.Stat(src); err != nil {
+		return ""
+	}
+	file := strconv.FormatInt(teacherID, 10) + resumeExt(kind)
+	dst := filepath.Join(a.resumeDir, file)
+	if err := os.Rename(src, dst); err != nil {
+		// 跨设备等情况退回复制
+		data, rerr := os.ReadFile(src)
+		if rerr != nil {
+			log.Printf("[简历] 归档原件失败 draft=%d teacher=%d: %v / %v", draftID, teacherID, err, rerr)
+			return ""
+		}
+		if werr := os.WriteFile(dst, data, 0o600); werr != nil {
+			log.Printf("[简历] 归档原件写入失败 draft=%d teacher=%d: %v", draftID, teacherID, werr)
+			return ""
+		}
+		_ = os.Remove(src)
+	}
+	return file
+}
+
+// removeDraftResumeFile 丢弃草稿时清理临时原件。
+func (a *app) removeDraftResumeFile(draftID int64, kind string) {
+	if p := a.draftResumePath(draftID, kind); p != "" {
+		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Printf("[简历] 清理草稿原件失败 draft=%d: %v", draftID, err)
+		}
+	}
+}
+
+// sweepResumeDraftFiles 启动时清理临时目录：草稿行重启后仍可查，但原件不再保留，
+// 残留文件属于孤儿数据。
+func (a *app) sweepResumeDraftFiles() {
+	if a.resumeDraftDir == "" {
+		return
+	}
+	entries, err := os.ReadDir(a.resumeDraftDir)
+	if err != nil {
+		return
+	}
+	var n int
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if err := os.Remove(filepath.Join(a.resumeDraftDir, e.Name())); err == nil {
+			n++
+		}
+	}
+	if n > 0 {
+		log.Printf("[简历] 已清理草稿原件残留 %d 个", n)
+	}
+}
+
+// removeTeacherResumeFiles 删除教师后清理其归档原件（文件残留不影响数据正确性，只记日志）。
+func (a *app) removeTeacherResumeFiles(ts []*Teacher) {
+	for _, t := range ts {
+		p := a.resumeFilePath(t.ResumeFile)
+		if p == "" {
+			continue
+		}
+		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Printf("[简历] 删除原件失败 teacher=%d: %v", t.ID, err)
+		}
+	}
+}
+
+// apiTeacherResumeDownload GET /api/teachers/{id}/resume —— 下载入库简历原件（需登录）。
+func (a *app) apiTeacherResumeDownload(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		jsonError(w, http.StatusNotFound, "识别记录不存在")
+		return
+	}
+	t, err := getTeacher(a.db, id)
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, "查询失败")
+		return
+	}
+	if t == nil {
+		jsonError(w, http.StatusNotFound, "人员不存在")
+		return
+	}
+	path := a.resumeFilePath(t.ResumeFile)
+	if path == "" {
+		jsonError(w, http.StatusNotFound, "该人员没有已入库的简历原件")
+		return
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		jsonError(w, http.StatusNotFound, "简历文件已丢失")
+		return
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil || st.IsDir() {
+		jsonError(w, http.StatusInternalServerError, "读取简历失败")
+		return
+	}
+	kind := "docx"
+	if strings.EqualFold(filepath.Ext(t.ResumeFile), ".pdf") {
+		kind = "pdf"
+	}
+	if kind == "pdf" {
+		w.Header().Set("Content-Type", "application/pdf")
+	} else {
+		w.Header().Set("Content-Type",
+			"application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+	}
+	w.Header().Set("Content-Disposition",
+		fmt.Sprintf(`attachment; filename*=UTF-8''%s`, url.PathEscape(t.Name+"-简历."+kind)))
+	w.Header().Set("Cache-Control", "no-store")
+	http.ServeContent(w, r, t.ResumeFile, st.ModTime(), f)
+}
+
 // ---------- HTTP handler ----------
 
 // resumeView 是草稿的对外表示；payload 以对象原样回传。
@@ -1123,6 +1284,7 @@ func (a *app) apiResumeParse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.ID = id
+	a.saveDraftResumeFile(id, kind, data)
 	d.CreatedAt = nowStr()
 	log.Printf("[简历] 识别完成 file=%s type=%s size=%dKB pages=%d 图页=%d 抽取字段=%d 告警=%d 耗时=%s",
 		name, kind, len(data)>>10, d.PageCount, len(in.Pages), len(payload.Meta), len(payload.Warnings), time.Since(start).Round(time.Millisecond))
@@ -1184,6 +1346,7 @@ func (a *app) apiResumeDraftByID(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusInternalServerError, "删除识别记录失败")
 			return
 		}
+		a.removeDraftResumeFile(id, d.FileType)
 		jsonResp(w, http.StatusOK, map[string]any{"data": map[string]any{"ok": true}})
 	default:
 		jsonError(w, http.StatusMethodNotAllowed, "方法不支持")
@@ -1222,6 +1385,12 @@ func (a *app) apiResumeCommit(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, "创建失败")
 		return
+	}
+	// 归档原件：草稿临时文件移入永久目录（无临时目录/无原件时跳过，仅存文本草稿）
+	if file := a.commitResumeFile(id, d.FileType, tid); file != "" {
+		if err := setTeacherResumeFile(a.db, tid, file); err != nil {
+			log.Printf("[简历] 写入 resume_file 失败 teacher=%d: %v", tid, err)
+		}
 	}
 	if err := deleteResumeDraft(a.db, id); err != nil {
 		log.Printf("[简历] 入库后删除草稿失败 id=%d: %v", id, err)

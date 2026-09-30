@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { inject, computed } from 'vue'
-import { Check } from 'lucide-vue-next'
+import Check from 'lucide-vue-next/dist/esm/icons/check.js'
 import { useClass } from '@/lib/utils'
 
 // 由 Select.vue 提供

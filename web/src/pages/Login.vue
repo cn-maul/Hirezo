@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { GraduationCap, User, Lock } from 'lucide-vue-next'
+import GraduationCap from 'lucide-vue-next/dist/esm/icons/graduation-cap.js'
+import User from 'lucide-vue-next/dist/esm/icons/user.js'
+import Lock from 'lucide-vue-next/dist/esm/icons/lock.js'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
 import Label from '@/components/ui/Label.vue'

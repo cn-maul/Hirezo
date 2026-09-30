@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"syscall"
@@ -32,6 +33,7 @@ func main() {
 	password := flag.String("password", defaultPassword, "管理员初始密码（可用 HIREZO_PASSWORD 环境变量覆盖，仅在首次创建 admin 时生效）")
 	trustProxy := flag.Bool("trust-proxy", false, "信任 X-Forwarded-For / X-Real-IP 头获取客户端真实 IP（仅在反向代理之后开启，否则限流可被伪造头绕过）")
 	secretKeyFile := flag.String("secret-key", "", "API Key 加密密钥文件路径（默认：数据库同目录 .hirezo-secret；也可用 HIREZO_SECRET_FILE 环境变量指定）")
+	resumeDirFlag := flag.String("resume-dir", "", "入库简历原件存储目录（默认：数据库同目录 resumes/；识别草稿的临时文件在其 drafts/ 子目录，重启时清理）")
 	flag.Parse()
 
 	db, err := openDB(*dbPath)
@@ -53,6 +55,16 @@ func main() {
 		log.Fatalf("加载应用加密密钥失败: %v", err)
 	}
 
+	// 简历原文件存储目录：永久目录随入库增长，草稿临时目录启动时清空残留
+	resumeDir := *resumeDirFlag
+	if resumeDir == "" {
+		resumeDir = filepath.Join(filepath.Dir(*dbPath), "resumes")
+	}
+	resumeDraftDir := filepath.Join(resumeDir, "drafts")
+	if err := os.MkdirAll(resumeDraftDir, 0o700); err != nil {
+		log.Fatalf("创建简历存储目录失败: %v", err)
+	}
+
 	pw := *password
 	if env := os.Getenv("HIREZO_PASSWORD"); env != "" {
 		pw = env
@@ -72,12 +84,15 @@ func main() {
 		log.Printf("提示: %v（仅影响扫描件简历识别，文本层 PDF 不受影响）", err)
 	}
 	a := &app{
-		db:           db,
-		auth:         newAuthStore(),
-		trustProxy:   *trustProxy,
-		loginLimiter: newRateLimiter(10, time.Minute),
-		secret:       secret,
+		db:             db,
+		auth:           newAuthStore(),
+		trustProxy:     *trustProxy,
+		loginLimiter:   newRateLimiter(10, time.Minute),
+		secret:         secret,
+		resumeDir:      resumeDir,
+		resumeDraftDir: resumeDraftDir,
 	}
+	a.sweepResumeDraftFiles()
 	// 限流器后台清扫：固定周期删除过期 key，内存上限可控
 	stopSweep := make(chan struct{})
 	a.loginLimiter.startSweep(stopSweep)
@@ -128,6 +143,7 @@ func (a *app) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/teachers/export", a.apiExportXLSX)
 	mux.HandleFunc("POST /api/teachers/batch-delete", a.apiTeacherBatchDelete)
 	mux.HandleFunc("/api/teachers/{id}", a.apiTeacherByID) // GET / PUT / DELETE
+	mux.HandleFunc("GET /api/teachers/{id}/resume", a.apiTeacherResumeDownload)
 
 	// 字典（学科 / 学历）
 	mux.HandleFunc("GET /api/dictionaries/{kind}", a.apiDictionaryList)
@@ -170,6 +186,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "+
 				"img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; "+
+				"frame-src 'self' blob:; "+
 				"frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 		next.ServeHTTP(w, r)
 	})

@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Settings2, Tags, Database, Sparkles } from 'lucide-vue-next'
+import Settings2 from 'lucide-vue-next/dist/esm/icons/settings-2.js'
+import Tags from 'lucide-vue-next/dist/esm/icons/tags.js'
+import Sparkles from 'lucide-vue-next/dist/esm/icons/sparkles.js'
 import { cn } from '@/lib/utils'
 import { APP_VERSION_LABEL } from '@/lib/version'
 import { useAuth } from '@/composables/useAuth'
@@ -14,7 +16,6 @@ const tabs = [
   { to: '/settings/general', icon: Settings2, label: '通用' },
   { to: '/settings/dicts', icon: Tags, label: '字典管理' },
   { to: '/settings/llm', icon: Sparkles, label: '模型配置' },
-  { to: '/settings/data', icon: Database, label: '数据备份' },
 ]
 
 const showSpinner = computed(() => authed.value === null)

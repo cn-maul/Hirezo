@@ -1,7 +1,7 @@
 {
   "name": "hirezo-web",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "axios": "^1.7.9",
+    "docx-preview": "^0.4.1",
     "lucide-vue-next": "^0.475.0",
     "vue": "^3.5.13",
     "vue-router": "^4.5.0"

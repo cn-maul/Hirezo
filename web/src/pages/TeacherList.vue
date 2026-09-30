@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Pencil, Plus, Trash2 } from 'lucide-vue-next'
+import Pencil from 'lucide-vue-next/dist/esm/icons/pencil.js'
+import Plus from 'lucide-vue-next/dist/esm/icons/plus.js'
+import Trash2 from 'lucide-vue-next/dist/esm/icons/trash-2.js'
 import {
   batchDeleteTeachers,
   createTeacher,

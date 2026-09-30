@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Plus, Pencil, Trash2 } from 'lucide-vue-next'
+import Plus from 'lucide-vue-next/dist/esm/icons/plus.js'
+import Pencil from 'lucide-vue-next/dist/esm/icons/pencil.js'
+import Trash2 from 'lucide-vue-next/dist/esm/icons/trash-2.js'
 import {
   createDictionary,
   deleteDictionary,

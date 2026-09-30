@@ -52,11 +52,6 @@ const routes: RouteRecordRaw[] = [
                 name: 'settings-llm',
                 component: () => import('@/pages/Settings/LLM.vue'),
               },
-              {
-                path: 'data',
-                name: 'settings-data',
-                component: () => import('@/pages/Settings/Data.vue'),
-              },
             ],
           },
         ],

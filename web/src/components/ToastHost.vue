@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { CheckCircle2, AlertCircle, Info } from 'lucide-vue-next'
+import CheckCircle2 from 'lucide-vue-next/dist/esm/icons/circle-check.js'
+import AlertCircle from 'lucide-vue-next/dist/esm/icons/triangle-alert.js'
+import Info from 'lucide-vue-next/dist/esm/icons/info.js'
 import { useToastState, dismiss } from '@/composables/useToast'
 
 const toasts = useToastState()

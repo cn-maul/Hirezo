@@ -154,6 +154,10 @@ func TestSecurityHeaders(t *testing.T) {
 	if csp := resp.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "default-src 'self'") {
 		t.Errorf("Content-Security-Policy 缺失: %q", csp)
 	}
+	// 简历原件预览用 blob: iframe，frame-src 必须放行 blob
+	if csp := resp.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "frame-src 'self' blob:") {
+		t.Errorf("Content-Security-Policy 未放行 blob frame: %q", csp)
+	}
 }
 
 func TestSettingsWhitelist(t *testing.T) {

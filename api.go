@@ -247,6 +247,7 @@ func (a *app) apiTeacherByID(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusInternalServerError, "删除失败")
 			return
 		}
+		a.removeTeacherResumeFiles([]*Teacher{t})
 		jsonResp(w, http.StatusOK, map[string]any{"data": map[string]any{"ok": true}})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -302,11 +303,24 @@ func (a *app) apiTeacherBatchDelete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// 先取待删行，删除成功后清理其归档简历文件
+	victims := make([]*Teacher, 0, len(body.IDs))
+	for _, id := range body.IDs {
+		t, err := getTeacher(a.db, id)
+		if err != nil {
+			jsonError(w, http.StatusInternalServerError, "批量删除失败")
+			return
+		}
+		if t != nil {
+			victims = append(victims, t)
+		}
+	}
 	n, err := batchDeleteTeachers(a.db, body.IDs)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, "批量删除失败")
 		return
 	}
+	a.removeTeacherResumeFiles(victims)
 	jsonResp(w, http.StatusOK, map[string]any{"data": map[string]any{"ok": true, "deleted": n}})
 }
 

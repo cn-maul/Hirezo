@@ -12,6 +12,7 @@ export interface Teacher {
   university: string
   major: string
   remark: string
+  resume_file?: string // 入库简历的归档文件名，空 = 手工录入无简历
   created_at: string
   updated_at: string
 }

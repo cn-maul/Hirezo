@@ -1,10 +1,11 @@
 # ============================================
 # Hirezo 教师管理系统 - Docker 镜像（两阶段：Node 构建前端 → Go 编译含 embed 的可执行文件）
 #   docker build -t hirezo .
-#   docker run -d -p 8080:8080 -v hirezo-data:/data --name hirezo hirezo
+#   docker run -d -p 8882:8882 -v hirezo-data:/data --name hirezo hirezo
+#   （镜像内含 poppler-utils，扫描件 PDF 交给 pdftoppm 渲染后识图）
 # ============================================
 
-# 阶段 1：构建 React 前端
+# 阶段 1：构建 Vue 前端
 FROM node:22-alpine AS frontend
 WORKDIR /web
 # pnpm 11 默认会在运行任何命令前检查依赖完整性（无 TTY 时子进程 install 会失败），此处关闭
@@ -29,8 +30,10 @@ FROM alpine:3.21
 RUN apk add --no-cache ca-certificates tzdata poppler-utils
 COPY --from=builder /build/hirezo /hirezo
 ENV TZ=Asia/Shanghai
+# 监听端口：main.go 的 -addr 默认值跟随 PORT，改这里即可整体换端口
+ENV PORT=8882
 WORKDIR /data
-EXPOSE 8080
+EXPOSE 8882
 VOLUME ["/data"]
 ENTRYPOINT ["/hirezo"]
 CMD ["-db", "/data/hirezo.db"]

@@ -148,6 +148,7 @@ type Teacher struct {
 	University string `json:"university"` // 毕业院校
 	Major      string `json:"major"`      // 专业
 	Remark     string `json:"remark"`
+	ResumeFile string `json:"resume_file,omitempty"` // 入库简历的物理文件名（resumes 目录内），空 = 无简历
 	CreatedAt  string `json:"created_at"`
 	UpdatedAt  string `json:"updated_at"`
 }
@@ -196,13 +197,17 @@ var defaultEducations = []dictSeed{
 
 // ---------- 应用 ----------
 
-// app 应用依赖：数据库、会话、请求限流、API Key 加密密钥。
+// app 应用依赖：数据库、会话、请求限流、API Key 加密密钥、简历文件目录。
 type app struct {
 	db           *sql.DB
 	auth         *authStore
 	trustProxy   bool         // -trust-proxy：是否信任反向代理头（XFF/X-Real-IP）
 	loginLimiter *rateLimiter // /api/login 限流：同IP每分钟10次，缓解密码爆破
 	secret       *SecretKey   // API Key 加密密钥（AES-256-GCM）；测试/未配置时为 nil
+	// 简历原文件存储：resumeDir 永久保留（入库成功），resumeDraftDir 为识别草稿的临时存放。
+	// 两者为空表示未启用（测试环境），涉及文件的流程自动降级为纯文本草稿。
+	resumeDir      string
+	resumeDraftDir string
 	// siteNameMu 保护 siteName 缓存：SPA 回退注入站点名时不再查库，设置变更时失效。
 	siteNameMu     sync.Mutex
 	siteNameLoaded bool
@@ -298,6 +303,7 @@ CREATE TABLE IF NOT EXISTS teachers (
 	university   TEXT    NOT NULL DEFAULT '',
 	major        TEXT    NOT NULL DEFAULT '',
 	remark       TEXT    NOT NULL DEFAULT '',
+	resume_file  TEXT    NOT NULL DEFAULT '',
 	created_at   TEXT    NOT NULL,
 	updated_at   TEXT    NOT NULL
 );
@@ -328,9 +334,20 @@ func hasColumn(db *sql.DB, table, col string) (bool, error) {
 	return n > 0, err
 }
 
-// migrateDB 幂等迁移：初始化字典种子、升级明文密码。
-// 列结构演进沿用 hasColumn 探测模式（当前无待补列）。
+// migrateDB 幂等迁移：初始化字典种子、升级明文密码、补简历列。
 func migrateDB(db *sql.DB) error {
+	// 简历原文件列：旧库补列（新库由 initDB 建全）
+	has, err := hasColumn(db, "teachers", "resume_file")
+	if err != nil {
+		return err
+	}
+	if !has {
+		if _, err := db.Exec("ALTER TABLE teachers ADD COLUMN resume_file TEXT NOT NULL DEFAULT ''"); err != nil {
+			return fmt.Errorf("添加 teachers.resume_file 失败: %w", err)
+		}
+		log.Printf("[迁移] teachers 增加 resume_file 列（入库简历原文件）")
+	}
+
 	// 字典种子：仅当 dictionaries 表为空时写入（用户改过不重置）
 	var seedCount int
 	if err := db.QueryRow("SELECT COUNT(*) FROM dictionaries").Scan(&seedCount); err != nil {
@@ -490,7 +507,7 @@ func countTeachersUsingDict(db *sql.DB, kind, name string) (int, error) {
 
 // ---------- 教师数据访问 ----------
 
-const teacherCols = "id, name, gender, age, subject, has_cert, phone, education, university, major, remark, created_at, updated_at"
+const teacherCols = "id, name, gender, age, subject, has_cert, phone, education, university, major, remark, resume_file, created_at, updated_at"
 
 // teacherQuery 教师列表查询条件。
 // Gender 为空表示不筛；HasCert 为 -1 表示不筛、0/1 表示精确匹配。
@@ -572,7 +589,7 @@ func scanTeachers(rows *sql.Rows) ([]Teacher, error) {
 	for rows.Next() {
 		var t Teacher
 		if err := rows.Scan(&t.ID, &t.Name, &t.Gender, &t.Age, &t.Subject, &t.HasCert, &t.Phone,
-			&t.Education, &t.University, &t.Major, &t.Remark, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			&t.Education, &t.University, &t.Major, &t.Remark, &t.ResumeFile, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
 		ts = append(ts, t)
@@ -585,7 +602,7 @@ func getTeacher(db *sql.DB, id int64) (*Teacher, error) {
 	t := &Teacher{}
 	err := db.QueryRow("SELECT "+teacherCols+" FROM teachers WHERE id = ?", id).
 		Scan(&t.ID, &t.Name, &t.Gender, &t.Age, &t.Subject, &t.HasCert, &t.Phone,
-			&t.Education, &t.University, &t.Major, &t.Remark, &t.CreatedAt, &t.UpdatedAt)
+			&t.Education, &t.University, &t.Major, &t.Remark, &t.ResumeFile, &t.CreatedAt, &t.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -625,6 +642,12 @@ func updateTeacher(db *sql.DB, id int64, in teacherInput) error {
 		 education=?, university=?, major=?, remark=?, updated_at=? WHERE id=?`,
 		in.name, in.gender, in.age, in.subject, in.hasCert, in.phone,
 		in.education, in.university, in.major, in.remark, nowStr(), id)
+	return err
+}
+
+// setTeacherResumeFile 记录教师入库简历的原文件名（commit 成功后调用）。
+func setTeacherResumeFile(db *sql.DB, id int64, file string) error {
+	_, err := db.Exec("UPDATE teachers SET resume_file = ? WHERE id = ?", file, id)
 	return err
 }
 
@@ -694,7 +717,8 @@ func getAllSettings(db *sql.DB) (map[string]string, error) {
 
 // ---------- 简历识别草稿 ----------
 
-// ResumeDraft 简历识别的中间结果：只存归一化文本与抽取 JSON，不存原始文件。
+// ResumeDraft 简历识别的中间结果：只存归一化文本与抽取 JSON；
+// 原件临时文件按草稿 ID 存放在 resumeDraftDir，入库归档或丢弃/重启时清理。
 type ResumeDraft struct {
 	ID        int64  `json:"id"`
 	FileName  string `json:"file_name"`

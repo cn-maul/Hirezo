@@ -6,6 +6,8 @@ hirezo-linux-amd64
 *.db-wal
 *.db-shm
 *.bat
+resumes/
+.github/
 .git
 .gitignore
 .hirezo-secret

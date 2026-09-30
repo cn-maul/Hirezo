@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Pencil, Trash2 } from 'lucide-vue-next'
+import Pencil from 'lucide-vue-next/dist/esm/icons/pencil.js'
+import Trash2 from 'lucide-vue-next/dist/esm/icons/trash-2.js'
+import Download from 'lucide-vue-next/dist/esm/icons/download.js'
 import {
   deleteTeacher,
   fetchTeacher,
@@ -10,6 +12,7 @@ import {
   genderLabel,
   type TeacherInput,
 } from '@/api/teachers'
+import { downloadTeacherResume } from '@/api/resume'
 import { fetchDictionaries } from '@/api/dicts'
 import PageHeader from '@/components/PageHeader.vue'
 import TeacherFormDialog from '@/components/teachers/TeacherFormDialog.vue'
@@ -77,6 +80,15 @@ const subjectColor = computed(() => {
   return d?.color ?? ''
 })
 const tint = computed(() => categoryTint(subjectColor.value))
+
+const onResumeDownload = async () => {
+  if (!teacher.value) return
+  try {
+    await downloadTeacherResume(teacherId, teacher.value.name)
+  } catch (e) {
+    error(errMsg(e, '下载简历失败'))
+  }
+}
 </script>
 
 <template>
@@ -92,6 +104,9 @@ const tint = computed(() => categoryTint(subjectColor.value))
   <div v-else class="teacher-detail">
     <PageHeader :title="teacher.name" description="人员档案详情" @back="router.back()">
       <template #action>
+        <Button v-if="teacher.resume_file" variant="outline" @click="onResumeDownload">
+          <Download :size="18" /> 下载简历
+        </Button>
         <Button variant="outline" @click="editing = true">
           <Pencil :size="18" /> 编辑
         </Button>
@@ -125,27 +140,6 @@ const tint = computed(() => categoryTint(subjectColor.value))
           <span class="teacher-detail__value tabular-nums">{{ ageOrDash(teacher.age) }}</span>
         </div>
         <div class="teacher-detail__field">
-          <span class="teacher-detail__label">学科</span>
-          <span class="teacher-detail__value">
-            <span
-              v-if="teacher.subject"
-              :class="cn('cat-pill', !tint && 'teacher-detail__neutral-pill')"
-              :style="tint ?? undefined"
-            >
-              {{ teacher.subject }}
-            </span>
-            <span v-else>—</span>
-          </span>
-        </div>
-        <div class="teacher-detail__field">
-          <span class="teacher-detail__label">教师资格证</span>
-          <span
-            :class="teacher.has_cert === 1 ? 'teacher-detail__cert-yes' : 'teacher-detail__cert-no'"
-          >
-            {{ teacher.has_cert === 1 ? '有' : '无' }}
-          </span>
-        </div>
-        <div class="teacher-detail__field">
           <span class="teacher-detail__label">联系电话</span>
           <span v-if="teacher.phone" class="teacher-detail__phone">{{ teacher.phone }}</span>
           <span v-else>—</span>
@@ -159,10 +153,31 @@ const tint = computed(() => categoryTint(subjectColor.value))
           <span class="teacher-detail__value">{{ teacher.university || '—' }}</span>
         </div>
         <div class="teacher-detail__field">
+          <span class="teacher-detail__label">学科</span>
+          <span class="teacher-detail__value">
+            <span
+              v-if="teacher.subject"
+              :class="cn('cat-pill', !tint && 'teacher-detail__neutral-pill')"
+              :style="tint ?? undefined"
+            >
+              {{ teacher.subject }}
+            </span>
+            <span v-else>—</span>
+          </span>
+        </div>
+        <div class="teacher-detail__field">
           <span class="teacher-detail__label">专业</span>
           <span class="teacher-detail__value">{{ teacher.major || '—' }}</span>
         </div>
-        <div class="teacher-detail__field">
+        <div class="teacher-detail__field teacher-detail__field--full">
+          <span class="teacher-detail__label">教师资格证</span>
+          <span
+            :class="teacher.has_cert === 1 ? 'teacher-detail__cert-yes' : 'teacher-detail__cert-no'"
+          >
+            {{ teacher.has_cert === 1 ? '有' : '无' }}
+          </span>
+        </div>
+        <div class="teacher-detail__field teacher-detail__field--full">
           <span class="teacher-detail__label">备注</span>
           <span class="teacher-detail__value">{{ teacher.remark || '—' }}</span>
         </div>
@@ -219,18 +234,34 @@ const tint = computed(() => categoryTint(subjectColor.value))
   color: var(--danger);
 }
 
+/* 两列成行，与核对表单同样的配对；column-gap 留 0 好让行分隔线不断 */
 .teacher-detail__fields {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
 }
 .teacher-detail__field {
   display: flex;
   gap: 0.75rem;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--hairline);
+  padding: 8px 24px 8px 0;
+  border-top: 1px solid var(--hairline);
 }
-.teacher-detail__field:last-child {
-  border-bottom: 0;
+.teacher-detail__field:nth-child(-n + 2) {
+  border-top: 0;
+}
+.teacher-detail__field--full {
+  grid-column: 1 / -1;
+  padding-right: 0;
+}
+@media (max-width: 720px) {
+  .teacher-detail__fields {
+    grid-template-columns: 1fr;
+  }
+  .teacher-detail__field:nth-child(-n + 2) {
+    border-top: 1px solid var(--hairline);
+  }
+  .teacher-detail__field:first-child {
+    border-top: 0;
+  }
 }
 .teacher-detail__label {
   width: 96px;

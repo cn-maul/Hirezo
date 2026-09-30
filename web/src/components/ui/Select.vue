@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, provide, ref } from 'vue'
-import { ChevronDown } from 'lucide-vue-next'
+import ChevronDown from 'lucide-vue-next/dist/esm/icons/chevron-down.js'
 import { useClass } from '@/lib/utils'
 
 const props = withDefaults(
