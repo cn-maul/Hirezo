@@ -24,13 +24,13 @@
 | Excel 导出 | `github.com/xuri/excelize/v2` | 纯 Go；仅导出，导入属二期 |
 | 大模型接入 | `github.com/cn-maul/rosetta` v0.5.1 | 统一 OpenAI Chat / Responses / Anthropic Messages 三协议，零第三方依赖，Go 1.27 |
 | PDF 文本抽取 | `github.com/ledongthuc/pdf` | 纯 Go 文本层抽取；无文本层的扫描件转 `pdftoppm` 渲染 |
-| 前端 | React 19 + TypeScript + Vite | 复用 tix 界面风格 |
-| 样式 | Tailwind CSS v4 + shadcn 风格组件 + CSS 变量设计令牌 | 无业务组件库 |
-| 路由 / 数据 | `react-router-dom` + `@tanstack/react-query` | |
+| 前端 | Vue 3 + TypeScript + Vite | 复用 tix 界面风格 |
+| 样式 | 自实现 CSS（CSS 变量设计令牌，HeroUI 风格） | 无业务组件库、无 Tailwind |
+| 路由 / 数据 | `vue-router` + 自写 `useQuery` composable | 轻量、零额外依赖 |
 | HTTP | `axios`（统一封装于 `src/api/client.ts`） | |
 | 静态资源 | `embed.FS`（`//go:embed web/dist`） | 前端产物编译进二进制 |
 
-依赖总量：后端 5 个直接依赖（sqlite / crypto / excelize / rosetta / ledongthuc-pdf），前端为 tix 原有依赖集，未新增。
+依赖总量：后端 5 个直接依赖（sqlite / crypto / excelize / rosetta / ledongthuc-pdf），前端 4 个直接依赖（vue / vue-router / lucide-vue-next / axios）。
 
 ## 3. 系统架构
 
@@ -50,9 +50,11 @@ Hirezo/
 │   ├── src/
 │   │   ├── api/        # client 封装 + auth/teachers/dicts/settings/resume
 │   │   ├── components/ # 通用组件（Table/Dialog/Button…）+ teachers/ 筛选与表单
+│   │   ├── composables/ # useAuth / useTheme / useToast / useQuery / useForm
 │   │   ├── pages/      # Login / TeacherList / TeacherDetail / Resume / Settings
-│   │   ├── lib/        # validation、theme、utils
-│   │   └── router.tsx
+│   │   ├── styles/     # tokens.css（设计令牌）/ base.css / utilities.css
+│   │   ├── lib/        # validation、utils、version
+│   │   └── router.ts
 │   ├── dist/           # 构建产物（被 embed）
 │   └── vite.config.ts  # dev 时 proxy /api → :8080
 ├── docs/DESIGN.md
@@ -282,16 +284,16 @@ CREATE TABLE resume_drafts (
 ### 7.2 页面与组件
 
 ```
-Layout.tsx            侧边栏（人员管理 / 简历识别 / 系统设置）+ 顶栏（主题、退出、账号弹窗）
-PageHeader.tsx        标题 + 主操作按钮
-Table.tsx             DataTable / PaginationBar（通用）
-TeacherFilters.tsx    姓名搜索（300ms 防抖 + URL 同步）+ 学科/性别/学历/证书 下拉 + 导出
-TeacherFormDialog.tsx 新增/编辑弹窗（同一组件，2 列网格）；M4 增加 fieldMeta 高亮模式
-DeleteConfirm.tsx     危险操作二次确认
-AccountDialog.tsx     修改密码
-Dicts.tsx             字典管理（Tab 切换 kind）
-LLM.tsx               模型配置（端点/协议/模型/API Key + 连通性说明）
-Resume.tsx            简历识别：拖拽上传 → 解析进度 → 高亮表单 → 确认入库 + 草稿列表
+Layout.vue            侧边栏（人员管理 / 简历识别 / 系统设置）+ 顶栏（主题、退出、账号弹窗）
+PageHeader.vue        标题 + 主操作按钮
+DataTable.vue         DataTable / PaginationBar（通用）
+TeacherFilters.vue    姓名搜索（300ms 防抖 + URL 同步）+ 学科/性别/学历/证书 下拉 + 导出
+TeacherFormDialog.vue 新增/编辑弹窗（同一组件，2 列网格）；M4 增加 fieldMeta 高亮模式
+DeleteConfirm.vue     危险操作二次确认
+AccountDialog.vue     修改密码
+Dicts.vue             字典管理（Tab 切换 kind）
+LLM.vue               模型配置（端点/协议/模型/API Key + 连通性说明）
+Resume.vue            简历识别：拖拽上传 → 解析进度 → 高亮表单 → 确认入库 + 草稿列表
 ```
 
 **列表列**：姓名（跳详情）/ 性别 / 年龄 / 学科（色胶囊）/ 教师资格证 / 联系电话 / 学历 / 毕业院校 / 专业 / 录入时间 / 操作（查看 · 编辑 · 删除）。支持多选批量删除。
@@ -300,10 +302,10 @@ Resume.tsx            简历识别：拖拽上传 → 解析进度 → 高亮表
 
 ### 7.3 样式与状态
 
-- 设计令牌在 `src/index.css` 的 CSS 变量（`--accent`、`--track`、`--r-*`、`--hairline` 等），亮/暗主题由 `lib/theme.tsx` 切换 `data-theme`。
-- 组件样式以 Tailwind 工具类 + 少量自定义类（`.cat-pill`、`.surface-card`、`.glass-nav`）组合。
-- 状态：`@tanstack/react-query` 管理服务端缓存与失效；表单用自写 `useFormState` Hook（提交整体校验、出错字段再输入时清除）。
-- 轻提示用 `sonner` toast。
+- 设计令牌在 `src/styles/tokens.css` 的 CSS 变量（`--accent`、`--track`、`--r-*`、`--hairline` 等），亮/暗主题由 `composables/useTheme.ts` 切换 `.dark`。
+- 组件样式为自实现 CSS（`src/styles/base.css` / `utilities.css`）+ 少量自定义类（`.cat-pill`、`.surface-card`、`.glass-nav`），参考 HeroUI 设计语言（Apple 风格、oklch 色板、柔和 accent、圆角与阴影层级）。
+- 状态：`composables/useQuery.ts` 管理服务端缓存与失效（按 key 缓存 + `invalidateQueries`）；表单用自写 `useForm` composable（提交整体校验、出错字段再输入时清除）。
+- 轻提示用自写 `useToast` composable + `ToastHost.vue`。
 
 ## 8. 构建与部署
 

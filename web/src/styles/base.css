@@ -1,0 +1,126 @@
+/* ════════════════════════════════════════════════════════════════
+   Base / reset styles
+   ════════════════════════════════════════════════════════════════ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  border-color: var(--hairline, currentColor);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+/* Titles carry negative tracking; body text does not. */
+h1, h2, h3, h4 {
+  margin: 0;
+  letter-spacing: -0.022em;
+  line-height: 1.15;
+}
+
+p {
+  margin: 0;
+}
+
+/* Numbers that sit in columns must not jitter. */
+table, .tabular, .tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Native checkboxes render as a light chip by default; in dark mode that
+   becomes a glaring white square. Tint unchecked boxes to the track grey and
+   let the accent fill the checked state. */
+input[type='checkbox'] {
+  accent-color: var(--accent);
+  color-scheme: inherit;
+}
+.dark input[type='checkbox']:not(:checked) {
+  appearance: none;
+  border: 1.5px solid var(--text-4);
+  border-radius: 4px;
+  background: transparent;
+}
+.dark input[type='checkbox']:checked {
+  appearance: none;
+  border: 1.5px solid var(--accent);
+  border-radius: 4px;
+  background: var(--accent);
+}
+
+/* Focus is a soft ring, never a hard browser outline. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+input, textarea, select {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+ul, ol {
+  margin: 0;
+  padding: 0;
+}
+
+code, pre {
+  font-family: var(--mono);
+}
+
+/* ── Motion politeness ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass-nav, .glass-chip {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--surface);
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --hairline: rgba(0, 0, 0, 0.28);
+    --text-2:   #4a4a4f;
+    --text-3:   #5c5c61;
+  }
+  .glass-nav, .glass-chip {
+    background: var(--surface);
+  }
+}

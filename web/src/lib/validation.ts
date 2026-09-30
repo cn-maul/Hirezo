@@ -1,6 +1,3 @@
-import { useCallback, useRef, useState } from 'react'
-import type { FormEvent } from 'react'
-
 // 轻量表单校验：替代此前的 zod + react-hook-form 组合，
 // 校验规则与后端 api.go 保持一致，错误文案不变。
 
@@ -90,45 +87,4 @@ export function validatePasswordChange(v: PasswordChangeValues): Errors<Password
   if (!v.confirm) e.confirm = '请再次输入新密码'
   else if (v.confirm !== v.new_password) e.confirm = '两次输入不一致'
   return e
-}
-
-// ---------- 极简表单状态 Hook（替代 react-hook-form） ----------
-
-// 提交时整体校验；出错字段在再次输入时清除错误。
-// set/getValues/reset/submit 引用稳定，可安全加入 effect 依赖。
-export function useFormState<F extends object>(initial: F, validate: (v: F) => Errors<F>) {
-  const [values, setValues] = useState<F>(initial)
-  const [errors, setErrors] = useState<Errors<F>>({})
-  // 始终持有最新值/校验器，保证回调引用稳定且不读旧值
-  const valuesRef = useRef(values)
-  valuesRef.current = values
-  const validateRef = useRef(validate)
-  validateRef.current = validate
-  const initialRef = useRef(initial)
-
-  const set = useCallback(<K extends keyof F>(key: K, value: F[K]) => {
-    setValues((prev) => ({ ...prev, [key]: value }))
-    setErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev))
-  }, [])
-
-  const getValues = useCallback(() => valuesRef.current, [])
-
-  const reset = useCallback((next?: F) => {
-    setValues(next === undefined ? initialRef.current : next)
-    setErrors({})
-  }, [])
-
-  // 包装 form onSubmit：阻止默认提交 → 整体校验 → 全部通过才调用 onValid
-  const submit = useCallback(
-    (onValid: (v: F) => void | Promise<void>) =>
-      (e: FormEvent<HTMLFormElement>) => {
-        e.preventDefault()
-        const errs = validateRef.current(valuesRef.current)
-        setErrors(errs)
-        if (!Object.values(errs).some(Boolean)) void onValid(valuesRef.current)
-      },
-    [],
-  )
-
-  return { values, errors, set, getValues, reset, submit }
 }

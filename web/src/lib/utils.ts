@@ -1,10 +1,4 @@
-import type { CSSProperties } from 'react'
-import { clsx, type ClassValue } from 'clsx'
-import { twMerge } from 'tailwind-merge'
-
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
-}
+import { useAttrs, type CSSProperties } from 'vue'
 
 /**
  * 统一错误信息提取：axios 拦截器已把错误转换成 Error（消息为后端 error.message），
@@ -21,7 +15,7 @@ export function errMsg(e: unknown, fallback = '请求失败，请稍后再试'):
  * 6px 的点在灰胶囊里几乎看不见，等于没标。折中是让颜色上底、文字取同色相，
  * 既保住辨识度，又不到「满色块」那种吵闹。
  *
- * 只把原始色交给 CSS 变量 `--cat`，混色比例由 index.css 统一控制
+ * 只把原始色交给 CSS 变量 `--cat`，混色比例由 tokens.css 统一控制
  * （深浅模式各一套），组件不重复一遍深浅判断。
  *
  * 非法的颜色值返回 null，调用方回退到中性灰胶囊。
@@ -30,4 +24,18 @@ export function categoryTint(color?: string): CSSProperties | null {
   const hex = (color ?? '').trim()
   if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return null
   return { '--cat': hex } as CSSProperties
+}
+
+/** 拼接 className：过滤假值并合并字符串。 */
+export function cn(...inputs: Array<string | false | null | undefined>): string {
+  return inputs.filter(Boolean).join(' ')
+}
+
+/**
+ * 提取组件上透传的 class（不把 class 声明为 prop，避免与 Vue 内置 class 处理冲突）。
+ * 组件根元素会自动合并 class，这里用于把透传 class 与组件自身基础类拼接。
+ */
+export function useClass(...base: Array<string | false | null | undefined>): string {
+  const attrs = useAttrs()
+  return cn(...base, attrs.class as string | undefined)
 }

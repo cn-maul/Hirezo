@@ -1,16 +1,14 @@
 import { fileURLToPath, URL } from 'node:url'
 import { readFileSync } from 'node:fs'
 import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import tailwindcss from '@tailwindcss/vite'
+import vue from '@vitejs/plugin-vue'
 import compression from 'vite-plugin-compression'
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
 
 export default defineConfig({
   plugins: [
-    react(),
-    tailwindcss(),
+    vue(),
     compression({ algorithm: 'gzip', ext: '.gz', threshold: 1024 }),
     compression({ algorithm: 'brotliCompress', ext: '.br', threshold: 1024 }),
   ],
@@ -35,18 +33,8 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          react: ['react', 'react-dom', 'react-router-dom'],
-          query: ['@tanstack/react-query'],
-          radix: [
-            '@radix-ui/react-alert-dialog',
-            '@radix-ui/react-dialog',
-            '@radix-ui/react-select',
-            '@radix-ui/react-slot',
-            '@radix-ui/react-switch',
-            '@radix-ui/react-tooltip',
-          ],
-          icons: ['lucide-react'],
-          feedback: ['sonner'],
+          vue: ['vue', 'vue-router'],
+          icons: ['lucide-vue-next'],
         },
       },
     },
